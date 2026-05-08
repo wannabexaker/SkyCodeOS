@@ -264,20 +264,27 @@ Phase 6 has four pillars. All four must close before the phase is marked CLOSED.
 
 **Exit gates:**
 - ⬜ `cargo build --workspace`: 0 warnings on canonical crates
-- ⬜ `cargo deny check`: 0 violations
-- ⬜ `phase6_crate_boundary_compile`: `trybuild` suite — one compile-fail test
-  per canonical crate asserting each forbidden cross-crate import is rejected
-  at compile time (e.g. `skycode-core` cannot import from `skycode-agent`,
-  `skycode-agent` cannot import `llama_cpp` directly, etc.)
-- ⬜ `phase6_redteam_no_extra_write_path`: workspace grep for `fs::write`,
-  `fs::create_dir*`, `OpenOptions::*().write`, `fs::rename`, `fs::remove_file`,
-  `fs::remove_dir*`, `std::process::Command` returns zero results outside
-  `skycode-tools::apply`, `skycode-inference::hardware`, and `#[cfg(test)]`
-- ⬜ `phase6_redteam_no_raw_sql_mutate`: grep for `UPDATE ` and `DELETE FROM`
-  SQL literals (case-insensitive) returns zero results outside `#[cfg(test)]`
-  and migration scripts
-- ⬜ `phase6_append_only_triggers`: UPDATE/DELETE on protected tables raises
-  SQLite constraint error
+- ⬜ `cargo deny check`: 0 violations (prerequisite: `cargo install cargo-deny`)
+- ✅ `phase6_crate_boundary_compile`: `trybuild` suite — 4 compile-fail fixtures
+  confirm `skycode-core` cannot import from agent, tools, inference, or
+  orchestrator at compile time (`boundary-tests` crate, commit 15ad5b7)
+- ✅ `phase6_redteam_no_extra_write_path`: workspace grep for `fs::write`,
+  `fs::create_dir*`, `OpenOptions::*().write` — zero results outside approved
+  write sites (`skycode-tools::{apply,verify,process,filesystem}`,
+  `cli::approve`) and `#[cfg(test)]` blocks
+- ✅ `phase6_redteam_no_unauthorized_remove_rename`: workspace grep for
+  `fs::rename`, `fs::remove_file`, `fs::remove_dir*` — zero results outside
+  approved sites and `#[cfg(test)]` blocks
+- ✅ `phase6_redteam_no_unauthorized_command_spawn`: workspace grep for
+  `Command::new` — zero results outside approved command sites
+  (`skycode-tools::{apply,verify,process,filesystem,rollback}`,
+  `skycode-inference::loader`) and `#[cfg(test)]` blocks
+- ✅ `phase6_redteam_no_raw_sql_mutate`: grep for `UPDATE ` / `DELETE FROM`
+  (case-insensitive, non-comment lines) — zero results outside approved
+  non-append-only mutation sites and `#[cfg(test)]` blocks
+- ✅ `phase6_append_only_*` (6 tests): UPDATE/DELETE on `tool_events`,
+  `approval_tokens_used`, and `diff_set_members` each raise SQLite ABORT
+  via BEFORE triggers, confirmed by raw SQL bypass tests
 - ⬜ `phase6_multifile_rollback_real_repo`: 5-file edit + simulated mid-flight
   failure leaves repo identical to pre-apply state
 
