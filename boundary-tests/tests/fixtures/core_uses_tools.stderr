@@ -1,0 +1,11 @@
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `skycode_tools`
+ --> tests/fixtures/core_uses_tools.rs:2:5
+  |
+2 | use skycode_tools::tools::apply::ApplyError;
+  |     ^^^^^^^^^^^^^ use of unresolved module or unlinked crate `skycode_tools`
+  |
+help: there is a crate or module with a similar name
+  |
+2 - use skycode_tools::tools::apply::ApplyError;
+2 + use skycode_core::tools::apply::ApplyError;
+  |

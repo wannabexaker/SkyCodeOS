@@ -1,0 +1,7 @@
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `skycode_agent`
+ --> tests/fixtures/core_uses_agent.rs:4:5
+  |
+4 | use skycode_agent::agent::identity::CoderIdentity;
+  |     ^^^^^^^^^^^^^ use of unresolved module or unlinked crate `skycode_agent`
+  |
+  = help: if you wanted to use a crate named `skycode_agent`, use `cargo add skycode_agent` to add it to your `Cargo.toml`

@@ -9,5 +9,6 @@ members = [
     "skycode-orchestrator",
     "runtime",
     "cli",
+    "boundary-tests",
 ]
 resolver = "2"
