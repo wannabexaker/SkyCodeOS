@@ -1,0 +1,15 @@
+[package]
+name = "boundary-tests"
+version = "0.1.0"
+edition = "2021"
+# This crate exists solely to verify compile-time boundary enforcement.
+# It intentionally has minimal workspace dependencies so that trybuild
+# fixture files that attempt forbidden imports fail to compile.
+
+[dependencies]
+# Only skycode-core — the zero-dep foundation.  Every fixture that tries to
+# import any other workspace crate must fail to compile.
+skycode-core = { path = "../skycode-core" }
+
+[dev-dependencies]
+trybuild = "1"

@@ -77,9 +77,9 @@ pub fn run_verify(
     }
 
     // On timeout the immediate child is killed, but grandchildren spawned by shell
-    // wrappers (e.g. cmd.exe → ping.exe on Windows) may still hold the stderr pipe
-    // open. Waiting indefinitely for the reader thread would block for the full
-    // duration of the grandchild. Skip it when timed out.
+    // wrappers (for example, cmd.exe to ping.exe on Windows) may still hold the
+    // stderr pipe open. Waiting indefinitely for the reader thread would block
+    // for the full duration of the grandchild. Skip it when timed out.
     let stderr_bytes = if timed_out {
         Vec::new()
     } else {

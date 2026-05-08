@@ -1,0 +1,7 @@
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `skycode_inference`
+ --> tests/fixtures/core_uses_inference.rs:2:5
+  |
+2 | use skycode_inference::inference::registry::ModelRegistry;
+  |     ^^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `skycode_inference`
+  |
+  = help: if you wanted to use a crate named `skycode_inference`, use `cargo add skycode_inference` to add it to your `Cargo.toml`
