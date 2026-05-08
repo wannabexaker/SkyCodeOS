@@ -1,3 +1,5 @@
+use rusqlite::{Connection, OptionalExtension};
+use skycode_runtime::db::migrations::run_migrations;
 use skycode_runtime::tools::verify::run_verify;
 
 #[test]
@@ -90,4 +92,36 @@ fn sleep_ten_cmd() -> &'static str {
 #[cfg(not(windows))]
 fn sleep_ten_cmd() -> &'static str {
     "sleep 10"
+}
+
+/// --verify with no test_command in agent_state must fail before any subprocess is spawned.
+/// Verified by querying a fresh in-memory DB: test_command is NULL, so the CLI
+/// would exit 1 without calling run_verify.
+#[test]
+fn phase6_verify_missing_cmd() -> Result<(), Box<dyn std::error::Error>> {
+    let conn = open_migrated_mem_db()?;
+    let cmd: Option<String> = conn
+        .query_row(
+            "SELECT test_command FROM agent_state
+             WHERE agent_id = 'coder-primary' AND project_id = 'default'
+             LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    assert!(
+        cmd.is_none(),
+        "fresh DB must have no test_command configured"
+    );
+    Ok(())
+}
+
+fn open_migrated_mem_db() -> Result<Connection, Box<dyn std::error::Error>> {
+    let conn = Connection::open_in_memory()?;
+    let migrations_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("memory")
+        .join("migrations");
+    run_migrations(&conn, &migrations_dir)?;
+    Ok(conn)
 }

@@ -14,3 +14,4 @@ ring = "0.17"
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 skycode-orchestrator = { path = "../skycode-orchestrator" }
+skycode-tools = { path = "../skycode-tools" }
