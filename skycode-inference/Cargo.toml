@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 skycode-core = { path = "../skycode-core" }
+skycode-tools = { path = "../skycode-tools" }
 thiserror = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

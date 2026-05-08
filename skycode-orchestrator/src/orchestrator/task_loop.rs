@@ -279,6 +279,10 @@ fn invoke_model_and_parse_response(
         no_mmap: model.no_mmap,
         mlock: model.mlock,
         port: model.port,
+        kv_offload: model.kv_offload,
+        tensor_split: model.tensor_split.clone(),
+        split_mode: model.split_mode.clone(),
+        vram_budget_mb: model.vram_budget_mb.clone(),
     };
 
     let file_hint = extract_file_hint(&request.goal);

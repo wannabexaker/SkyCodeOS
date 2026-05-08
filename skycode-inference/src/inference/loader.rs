@@ -1,12 +1,15 @@
 use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Child, ExitStatus};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+use skycode_tools::tools::process::spawn_piped_command;
 use thiserror::Error;
+
+use super::registry::{SplitMode, VramBudget};
 
 const SERVER_HOST: &str = "127.0.0.1";
 const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -26,6 +29,10 @@ pub struct ModelLaunchOptions {
     pub repeat_penalty: f32,
     pub no_mmap: bool,
     pub mlock: bool,
+    pub kv_offload: bool,
+    pub tensor_split: Vec<f64>,
+    pub split_mode: SplitMode,
+    pub vram_budget_mb: Option<VramBudget>,
     pub port: u16,
 }
 
@@ -81,39 +88,8 @@ pub fn launch_server(options: &ModelLaunchOptions) -> Result<ModelHandle, Infere
         .filter(|path| !path.trim().is_empty())
         .unwrap_or("llama-server");
 
-    let mut command = Command::new(executable);
-    command
-        .arg("--model")
-        .arg(&options.model_path)
-        .arg("--ctx-size")
-        .arg(options.ctx_size.to_string())
-        .arg("--threads")
-        .arg(options.threads.to_string())
-        .arg("--n-gpu-layers")
-        .arg(options.n_gpu_layers.to_string())
-        .arg("--port")
-        .arg(options.port.to_string())
-        .arg("--host")
-        .arg(SERVER_HOST);
-
-    if let Some(n_cpu_moe) = options.n_cpu_moe {
-        command.arg("--n-cpu-moe").arg(n_cpu_moe.to_string());
-    }
-
-    if options.no_mmap {
-        command.arg("--no-mmap");
-    }
-
-    if options.mlock {
-        command.arg("--mlock");
-    }
-
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    let mut process = command.spawn()?;
+    let argv = build_llama_server_argv(options);
+    let mut process = spawn_piped_command(executable, &argv)?;
     let stdout = match process.stdout.take() {
         Some(stdout) => stdout,
         None => {
@@ -158,6 +134,65 @@ pub fn launch_server(options: &ModelLaunchOptions) -> Result<ModelHandle, Infere
         mlock_verified,
         mlock_warning,
     })
+}
+
+pub fn build_llama_server_argv(options: &ModelLaunchOptions) -> Vec<String> {
+    let mut argv = vec![
+        "--model".to_string(),
+        options.model_path.to_string_lossy().into_owned(),
+        "--ctx-size".to_string(),
+        options.ctx_size.to_string(),
+        "--threads".to_string(),
+        options.threads.to_string(),
+        "--n-gpu-layers".to_string(),
+        effective_gpu_layers(options).to_string(),
+        "--port".to_string(),
+        options.port.to_string(),
+        "--host".to_string(),
+        SERVER_HOST.to_string(),
+    ];
+
+    if let Some(n_cpu_moe) = options.n_cpu_moe {
+        argv.push("--n-cpu-moe".to_string());
+        argv.push(n_cpu_moe.to_string());
+    }
+
+    if options.no_mmap {
+        argv.push("--no-mmap".to_string());
+    }
+
+    if options.mlock {
+        argv.push("--mlock".to_string());
+    }
+
+    if !options.kv_offload {
+        argv.push("--no-kv-offload".to_string());
+    }
+
+    if !options.tensor_split.is_empty() {
+        argv.push("--tensor-split".to_string());
+        argv.push(join_tensor_split(&options.tensor_split));
+    }
+
+    argv.push("--split-mode".to_string());
+    argv.push(options.split_mode.as_flag().to_string());
+
+    argv
+}
+
+fn effective_gpu_layers(options: &ModelLaunchOptions) -> usize {
+    match options.vram_budget_mb {
+        Some(VramBudget::Mb(0)) => 0,
+        Some(VramBudget::Mb(_)) | Some(VramBudget::Auto(_)) | None => options.n_gpu_layers,
+    }
+}
+
+fn join_tensor_split(tensor_split: &[f64]) -> String {
+    tensor_split
+        .iter()
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 pub fn call_model(prompt: &str, port: u16) -> Result<String, InferenceError> {

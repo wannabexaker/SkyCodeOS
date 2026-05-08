@@ -12,6 +12,32 @@ pub enum ModelRuntime {
     OpenaiCompatible,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SplitMode {
+    #[default]
+    Layer,
+    Row,
+    None,
+}
+
+impl SplitMode {
+    pub fn as_flag(&self) -> &'static str {
+        match self {
+            Self::Layer => "layer",
+            Self::Row => "row",
+            Self::None => "none",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum VramBudget {
+    Mb(u64),
+    Auto(String),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelConfig {
@@ -32,12 +58,24 @@ pub struct ModelConfig {
     pub no_mmap: bool,
     #[serde(default)]
     pub mlock: bool,
+    #[serde(default = "default_kv_offload")]
+    pub kv_offload: bool,
+    #[serde(default)]
+    pub tensor_split: Vec<f64>,
+    #[serde(default)]
+    pub split_mode: SplitMode,
+    #[serde(default)]
+    pub vram_budget_mb: Option<VramBudget>,
     #[serde(default = "default_port")]
     pub port: u16,
 }
 
 fn default_threads() -> usize {
     8
+}
+
+fn default_kv_offload() -> bool {
+    true
 }
 
 fn default_port() -> u16 {
@@ -67,6 +105,8 @@ pub enum ModelRegistryError {
     RemoteAdapterEnabled(String),
     #[error("model not found in registry: {0}")]
     ModelNotFound(String),
+    #[error("invalid tensor_split: {0}")]
+    InvalidTensorSplit(String),
 }
 
 impl ModelRegistry {
@@ -150,14 +190,29 @@ fn validate_registry(registry: &mut ModelRegistry) -> Result<(), ModelRegistryEr
             n_cpu_moe: None,
             no_mmap: false,
             mlock: false,
+            kv_offload: default_kv_offload(),
+            tensor_split: Vec::new(),
+            split_mode: SplitMode::Layer,
+            vram_budget_mb: None,
             port: default_port(),
         });
     }
 
     for model in &mut registry.models {
+        if !model.tensor_split.is_empty() {
+            let sum: f64 = model.tensor_split.iter().copied().sum();
+            if !(0.99..=1.01).contains(&sum) {
+                return Err(ModelRegistryError::InvalidTensorSplit(format!(
+                    "{} tensor_split sums to {}",
+                    model.name, sum
+                )));
+            }
+        }
+
         if model.runtime == ModelRuntime::OpenaiCompatible && model.enabled {
             return Err(ModelRegistryError::RemoteAdapterEnabled(model.name.clone()));
         }
     }
+
     Ok(())
 }

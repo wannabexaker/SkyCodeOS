@@ -25,6 +25,8 @@ pub enum EventType {
     TuningRunStarted,
     TuningRunCompleted,
     MigrationDestructiveApplied,
+    TestVerifyPassed,
+    ApplyUnverified,
 }
 
 impl EventType {
@@ -50,6 +52,8 @@ impl EventType {
             Self::TuningRunStarted => "tuning_run_started",
             Self::TuningRunCompleted => "tuning_run_completed",
             Self::MigrationDestructiveApplied => "migration_destructive_applied",
+            Self::TestVerifyPassed => "test_verify_passed",
+            Self::ApplyUnverified => "apply_unverified",
         }
     }
 }
