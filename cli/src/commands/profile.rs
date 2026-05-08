@@ -31,6 +31,14 @@ pub enum ProfileCommands {
 pub struct ProfileUseArgs {
     /// Profile name: precise | fast | creative | deep
     pub profile: String,
+
+    /// Set the test command run after apply (e.g. "cargo test").
+    #[arg(long)]
+    pub test_command: Option<String>,
+
+    /// Set the verify timeout in seconds (1–300, default 60).
+    #[arg(long)]
+    pub verify_timeout: Option<u64>,
 }
 
 #[derive(Debug, Args)]
@@ -121,6 +129,52 @@ fn run_profile_use(args: &ProfileUseArgs) -> Result<(), Box<dyn std::error::Erro
     stmt.execute(params![args.profile])?;
 
     println!("Profile set to '{}'.", args.profile);
+
+    if let Some(cmd) = &args.test_command {
+        let changed = conn.execute(
+            "UPDATE agent_state
+             SET test_command = ?1, updated_at = unixepoch()
+             WHERE agent_id = 'coder-primary' AND project_id = 'default'",
+            params![cmd],
+        )?;
+
+        if changed == 0 {
+            conn.execute(
+                "INSERT INTO agent_state (
+                    agent_id, project_id, state_json, session_id, updated_at, test_command, verify_timeout_secs
+                 ) VALUES (
+                    'coder-primary', 'default', '{}', 'cli', unixepoch(), ?1, 60
+                 )",
+                params![cmd],
+            )?;
+        }
+
+        println!("test_command set to: {}", cmd);
+    }
+
+    if let Some(timeout) = args.verify_timeout {
+        let clamped = timeout.clamp(1, 300);
+        let changed = conn.execute(
+            "UPDATE agent_state
+             SET verify_timeout_secs = ?1, updated_at = unixepoch()
+             WHERE agent_id = 'coder-primary' AND project_id = 'default'",
+            params![i64::try_from(clamped)?],
+        )?;
+
+        if changed == 0 {
+            conn.execute(
+                "INSERT INTO agent_state (
+                    agent_id, project_id, state_json, session_id, updated_at, test_command, verify_timeout_secs
+                 ) VALUES (
+                    'coder-primary', 'default', '{}', 'cli', unixepoch(), NULL, ?1
+                 )",
+                params![i64::try_from(clamped)?],
+            )?;
+        }
+
+        println!("verify_timeout set to: {}s", clamped);
+    }
+
     Ok(())
 }
 
