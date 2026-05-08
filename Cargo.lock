@@ -1253,6 +1253,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "skycode-core",
+ "skycode-tools",
  "thiserror",
 ]
 

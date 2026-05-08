@@ -1,7 +1,9 @@
 pub mod apply;
 pub mod diff;
 pub mod filesystem;
+pub mod process;
 pub mod rollback;
+pub mod verify;
 
 use std::fmt::Debug;
 

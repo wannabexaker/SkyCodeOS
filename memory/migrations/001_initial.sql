@@ -55,7 +55,8 @@ CREATE TABLE tool_events (
     'rollback_failed','policy_denied','secret_redacted','model_invoked',
     'model_failed','memory_written','decision_written',
     'context_budget_enforced','trust_check_failed','tuning_run_started',
-    'tuning_run_completed','migration_destructive_applied'
+    'tuning_run_completed','migration_destructive_applied',
+    'test_verify_passed','apply_unverified'
   )),
   tool_name           TEXT,
   inputs_hash         TEXT,

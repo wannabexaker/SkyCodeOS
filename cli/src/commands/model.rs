@@ -194,6 +194,10 @@ fn to_launch_options(
         no_mmap: config.no_mmap,
         mlock: config.mlock,
         port: config.port,
+        kv_offload: config.kv_offload,
+        tensor_split: config.tensor_split.clone(),
+        split_mode: config.split_mode.clone(),
+        vram_budget_mb: config.vram_budget_mb.clone(),
     }
 }
 

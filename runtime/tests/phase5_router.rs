@@ -1,4 +1,4 @@
-use skycode_runtime::inference::{ModelConfig, ModelRegistry, ModelRuntime};
+use skycode_runtime::inference::{ModelConfig, ModelRegistry, ModelRuntime, SplitMode};
 use skycode_runtime::orchestrator::{classify_task, map_to_model, RouterError, TaskClass};
 
 #[test]
@@ -78,5 +78,9 @@ fn local_model(name: &str, enabled: bool) -> ModelConfig {
         no_mmap: false,
         mlock: false,
         port: 18080,
+        kv_offload: true,
+        tensor_split: Vec::new(),
+        split_mode: SplitMode::Layer,
+        vram_budget_mb: None,
     }
 }
