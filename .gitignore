@@ -1,0 +1,40 @@
+# Rust build artifacts
+/target/
+/target-codex/
+/target-codex4xeonW/
+**/target/
+**/*.rs.bk
+
+# SkyCodeOS runtime state — contains private signing keys and approval tokens
+.skycode/
+
+# SQLite databases (project-local state, regenerated from migrations)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# IDE / OS / tooling
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Per-user scratch
+*.bak
+*.swp
+*.tmp
+*~
+
+# Tooling caches that should not be committed
+.serena/
+.claw/
+
+# Large model files — must never enter the repo
+*.gguf
+*.safetensors
+*.bin
+
+# Logs
+*.log

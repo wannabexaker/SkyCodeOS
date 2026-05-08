@@ -1,0 +1,13 @@
+[workspace]
+members = [
+    "skycode-core",
+    "skycode-tools",
+    "skycode-memory",
+    "skycode-graph",
+    "skycode-inference",
+    "skycode-agent",
+    "skycode-orchestrator",
+    "runtime",
+    "cli",
+]
+resolver = "2"

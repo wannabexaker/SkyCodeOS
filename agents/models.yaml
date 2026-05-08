@@ -1,0 +1,42 @@
+models:
+  - name: local-coder
+    runtime: local_gguf
+    executable: "C:\\Models\\llama-b9050-bin-win-cpu-x64\\llama-server.exe"
+    path: "C:\\Models\\Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf"
+    ctx_size: 16384
+    gpu_layers: 0
+    strengths: [code_edit, refactor, short_answer]
+    enabled: true
+    threads: 8
+    n_cpu_moe: null
+    no_mmap: false
+    mlock: false
+    port: 18080
+
+  - name: local-coder-fast
+    runtime: local_gguf
+    executable: "C:\\Models\\llama-b9050-bin-win-cpu-x64\\llama-server.exe"
+    path: "C:\\Models\\Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf"
+    ctx_size: 8192
+    gpu_layers: 0
+    strengths: [classify, short_answer]
+    enabled: true
+    threads: 8
+    n_cpu_moe: null
+    no_mmap: false
+    mlock: false
+    port: 18081
+
+  - name: remote-adapter
+    runtime: openai_compatible
+    executable: ""
+    path: ""
+    ctx_size: 128000
+    gpu_layers: 0
+    strengths: []
+    enabled: false
+    threads: 1
+    n_cpu_moe: null
+    no_mmap: false
+    mlock: false
+    port: 0

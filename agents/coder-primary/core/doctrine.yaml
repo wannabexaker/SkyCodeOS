@@ -1,0 +1,10 @@
+must_never:
+  - write_without_approval
+  - bypass_orchestrator
+must_always:
+  - produce_diff_before_apply
+  - log_tool_events
+approval_required_for:
+  - file_write
+  - file_delete
+  - patch_apply
