@@ -125,3 +125,111 @@ fn unix_now() -> Result<i64, Box<dyn std::error::Error>> {
     let secs = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     Ok(i64::try_from(secs)?)
 }
+
+#[test]
+fn phase6_multifile_atomic() -> Result<(), Box<dyn std::error::Error>> {
+    // Real temp git repo: git apply works on disk, not in-memory.
+    let repo = tempfile::tempdir()?;
+    let run_git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(repo.path())
+            .output()
+            .unwrap()
+    };
+    run_git(&["init"]);
+    run_git(&["config", "user.email", "test@test.com"]);
+    run_git(&["config", "user.name", "Test"]);
+    std::fs::write(repo.path().join("hello.txt"), "hello\n")?;
+    run_git(&["add", "."]);
+    run_git(&["commit", "-m", "init"]);
+
+    // A valid patch that applies cleanly.
+    let valid_patch = concat!(
+        "diff --git a/hello.txt b/hello.txt\n",
+        "index ce01362..cc628cc 100644\n",
+        "--- a/hello.txt\n",
+        "+++ b/hello.txt\n",
+        "@@ -1 +1 @@\n",
+        "-hello\n",
+        "+world\n",
+    );
+
+    // A broken patch referencing a file that does not exist.
+    let broken_patch = concat!(
+        "diff --git a/ghost.txt b/ghost.txt\n",
+        "--- a/ghost.txt\n",
+        "+++ b/ghost.txt\n",
+        "@@ -1 +1 @@\n",
+        "-old\n",
+        "+new\n",
+    );
+
+    let conn = migrated_conn()?;
+    let d1 = uuid::Uuid::new_v4();
+    let d2 = uuid::Uuid::new_v4();
+
+    let diffs = vec![
+        skycode_runtime::tools::diff::DiffProposal {
+            id: d1,
+            diff_text: valid_patch.to_string(),
+            file_path: "hello.txt".to_string(),
+            created_at: now(),
+        },
+        skycode_runtime::tools::diff::DiffProposal {
+            id: d2,
+            diff_text: broken_patch.to_string(),
+            file_path: "ghost.txt".to_string(),
+            created_at: now(),
+        },
+    ];
+
+    // Create a diff set with both members.
+    skycode_runtime::db::create_diff_set(
+        &conn,
+        &skycode_runtime::db::DiffSetRecord {
+            set_id: "set-atomic".to_string(),
+            task_id: "task-1".to_string(),
+            agent_id: "coder-primary".to_string(),
+            project_id: "default".to_string(),
+            created_at: now(),
+        },
+        &[(d1.to_string(), 1_i64), (d2.to_string(), 2_i64)],
+    )?;
+
+    // Phase 1 (precheck) must reject the broken patch before anything is applied.
+    // Tokens slice is empty — we expect PrecheckFailed, not MissingToken.
+    let result = skycode_runtime::tools::apply::apply_diff_set(
+        &conn,
+        "set-atomic",
+        &[],
+        "coder-primary",
+        "task-1",
+        repo.path(),
+        &diffs,
+    );
+
+    assert!(
+        matches!(
+            result,
+            Err(skycode_runtime::tools::apply::DiffSetApplyError::PrecheckFailed { .. })
+        ),
+        "expected PrecheckFailed, got: {result:?}"
+    );
+
+    // The repo must be completely unchanged: hello.txt still reads "hello\n".
+    let content = std::fs::read_to_string(repo.path().join("hello.txt"))?;
+    assert_eq!(
+        content, "hello\n",
+        "repo must be unmodified after precheck rejection"
+    );
+
+    Ok(())
+}
+
+fn now() -> i64 {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => i64::try_from(duration.as_secs()).unwrap_or(i64::MAX),
+        Err(_) => 0,
+    }
+}
