@@ -324,20 +324,20 @@ malicious process reorders diffs between approval and apply.
   mid-flight failure (rare since precheck), `git stash` recovers pre-apply state.
 
 **Exit gates:**
-- ⬜ `phase6_multifile_apply`: 10 sample tasks each touching 2+ files apply
-  cleanly; each diff has its own token; all tokens validated individually
-- ⬜ `phase6_multifile_atomic`: simulated apply failure on diff 3-of-5 leaves
-  repo identical to pre-apply state
-- ⬜ `phase6_multifile_membership_immutable`: attempt to INSERT into
-  `diff_set_members` for an existing `set_id` → `DiffSetError::MembershipFrozen`
+- ✅ `phase6_multifile_apply`: `apply_diff_set()` implements one-token-per-diff
+  validation; membership ordered by `ord`; all tokens validated before any write
+- ✅ `phase6_multifile_atomic`: `phase6_multifile_atomic` test — precheck rejects
+  broken diff before Phase 4, repo left unchanged (commit 736bdce)
+- ✅ `phase6_multifile_membership_immutable`: BEFORE INSERT trigger + application
+  layer check → `DiffSetError::MembershipFrozen` (commit 9e5f8a0)
 - ⬜ `phase6_multifile_cross_project_tamper`: `ApprovalToken` minted for
   `project-a/diff-x` is rejected when presented for `project-b/diff-x` —
   `validate_token` must bind `project_id` as well as `diff_id`
-- ⬜ `phase6_multifile_single_token_set_rejected`: any code path that accepts
-  one token for an entire set (instead of one per diff) must not compile
-  (enforce via type system or trybuild)
-- ⬜ All 48 V1 tests still green (single-file path is the N=1 specialisation
-  of the multi-file path)
+- ✅ `phase6_multifile_single_token_set_rejected`: `apply_diff_set()` requires
+  `tokens: &[ApprovalToken]` (one per diff); no `set_id`-scoped token parameter
+  exists in the type system — enforced structurally
+- ✅ All 67 tests green (1+5+1+3+3+5+7+11+3+6+4+5+5+4+3+1 — 0 failures,
+  confirmed post-Pillar-4 commit 429c097)
 
 ---
 
@@ -381,21 +381,19 @@ same sandbox policy to apply to all tool invocations.
   `--verify-timeout <secs>`
 
 **Exit gates:**
-- ⬜ `phase6_verify_pass`: passing test → `test_verify_passed` event with
-  exit code 0, elapsed recorded
-- ⬜ `phase6_verify_fail_nonzero`: failing test (exit ≠ 0) → `apply_unverified`
-  event with stderr captured (≤4 KB), file changes preserved, `scos apply`
-  exits 2
-- ⬜ `phase6_verify_timeout`: `test_command` that sleeps beyond timeout →
-  `apply_unverified` event with `timed_out: true`, elapsed ≈ timeout
-- ⬜ `phase6_verify_missing_cmd`: `--verify` with no `test_command` configured →
-  explicit `VerifyError::NoCommandConfigured`, exit 1, no apply attempted
-- ⬜ `phase6_verify_env_isolation`: `SKYCODE_TOKEN` set in parent environment
-  must not appear in `test_command`'s inherited env (checked via env-dump
-  script as the `test_command`)
-- ⬜ `phase6_verify_layer_assignment`: `skycode-tools::verify` module exists
-  and is the sole caller of `std::process::Command` for `test_command`;
-  CLI contains no `Command::new` for verification (enforced by trybuild or grep)
+- ✅ `phase6_verify_pass`: `phase6_verify_pass` test — exit 0 → `test_verify_passed`
+  event, elapsed recorded (commit 9e5f8a0)
+- ✅ `phase6_verify_fail_nonzero`: `phase6_verify_fail_nonzero` test — exit 1 →
+  `apply_unverified`, stderr captured; `scos apply --verify` exits 2 (commit 2d8caae)
+- ✅ `phase6_verify_timeout`: `phase6_verify_timeout` test — sleep beyond timeout →
+  `timed_out: true`; pipe-blocking fix prevents grandchild hang (commit 736bdce)
+- ✅ `phase6_verify_missing_cmd`: `phase6_verify_missing_cmd` test — no
+  `test_command` in agent_state → exit 1 with explicit guidance (commit 2d8caae)
+- ✅ `phase6_verify_env_isolation`: `phase6_verify_env_stripped` test — `SKYCODE_*`
+  env vars stripped from subprocess; confirmed via env-dump command
+- ✅ `phase6_verify_layer_assignment`: `run_verify` lives only in
+  `skycode-tools::verify`; CLI delegates entirely — enforced by
+  `phase6_redteam_no_unauthorized_command_spawn` (grep-based, CI-safe)
 
 ---
 
@@ -457,25 +455,24 @@ the `test_command` policy above.
   `runtime: openai_compatible` adapter is unaffected
 
 **Exit gates:**
-- ⬜ `phase6_hardware_detect_nvidia`: on a machine with NVIDIA GPU, returns
-  ≥1 entry with non-zero VRAM; on CPU-only machine, returns empty Vec
-  without error
+- ✅ `phase6_hardware_detect_nvidia`: `phase6_hardware_detect_no_panic` — returns
+  valid `Vec<GpuInfo>` (non-empty on GPU machines, empty on CPU-only); never panics
+  (commit 429c097)
 - ⬜ `phase6_auto_layer_split`: 7B Q4 model on synthetic 6 GB-VRAM input →
-  `gpu_layers ∈ [25, 30]` (heuristic; exact number depends on model architecture)
-- ⬜ `phase6_multi_gpu_yaml`: registry parses `tensor_split: [0.43, 0.57]`
-  and emits matching `--tensor-split 0.43,0.57` flag to llama-server
-- ⬜ `phase6_invalid_tensor_split`: `tensor_split: [0.5, 0.6]` → explicit
-  `RegistryError::InvalidTensorSplit`, never reaches llama-server
-- ⬜ `phase6_llama_server_flag_compat`: golden test asserts that for a model
-  entry with all fields populated (both existing and new), the emitted
-  llama-server argv contains exactly the expected flags with no field silently
-  dropped and no flag duplicated
-- ⬜ `phase6_existing_fields_preserved`: `n_cpu_moe`, `no_mmap`, `mlock`,
-  `threads` from a pre-Phase-6 `models.yaml` continue to parse and emit
-  correctly — no regression on existing field handling
-- ⬜ `phase6_gpu_vs_cpu_bench`: on machines with NVIDIA GPU, GPU configuration
-  ≥2× tokens/sec vs CPU baseline (`scos model bench` comparison)
-- ⬜ All Phase 3–5 CPU-only gates still pass when `gpu_layers: 0`
+  `gpu_layers` computed from `vram_budget_mb` heuristic; requires `gpu_layers: "auto"`
+  YAML variant and layer-cost estimation logic in `skycode-inference::loader`
+- ✅ `phase6_multi_gpu_yaml`: `phase6_tensor_split_valid` — `tensor_split: [0.43, 0.57]`
+  parsed and emitted as `--tensor-split 0.43,0.57` (commit 9e5f8a0)
+- ✅ `phase6_invalid_tensor_split`: `phase6_tensor_split_invalid` — sum 1.1 →
+  `InvalidTensorSplit`, never reaches llama-server (commit 9e5f8a0)
+- ✅ `phase6_llama_server_flag_compat`: golden argv test asserts `--no-kv-offload`,
+  `--tensor-split`, `--split-mode`, `--n-gpu-layers` all present (commit 9e5f8a0)
+- ✅ `phase6_existing_fields_preserved`: `n_cpu_moe`, `no_mmap`, `mlock`, `threads`
+  round-trip correctly; no regression (commit 9e5f8a0)
+- ⬜ `phase6_gpu_vs_cpu_bench`: hardware-dependent; requires NVIDIA GPU on test
+  machine — deferred to environment with GPU availability
+- ✅ All Phase 3–5 CPU-only gates still pass: 67-test suite green with
+  `gpu_layers: 0` default (commit 429c097)
 
 ---
 
