@@ -119,16 +119,94 @@ fn arg_value<'a>(argv: &'a [String], flag: &str) -> Result<&'a str, Box<dyn std:
         .ok_or_else(|| format!("missing argv flag {flag}").into())
 }
 
+/// Auto GPU layer split: pure computation functions verified with synthetic inputs.
+/// No GPU hardware required because these functions are pure.
+#[test]
+fn phase6_auto_layer_split() {
+    use skycode_runtime::inference::{auto_tensor_split_from_gpus, compute_auto_gpu_layers};
+    use skycode_runtime::tools::hardware::GpuInfo;
+
+    assert_eq!(
+        compute_auto_gpu_layers(4000, 6000, 32),
+        32,
+        "all layers of a 7B model should fit in 6 GB"
+    );
+
+    let layers = compute_auto_gpu_layers(40000, 6000, 80);
+    assert!(
+        layers >= 8 && layers <= 13,
+        "expected about 10 layers of a 70B model to fit in 6 GB, got {layers}"
+    );
+
+    assert_eq!(
+        compute_auto_gpu_layers(4000, 0, 32),
+        0,
+        "zero VRAM must result in zero GPU layers"
+    );
+
+    let gpus = vec![
+        GpuInfo {
+            index: 0,
+            name: "GPU-A".into(),
+            vram_total_mb: 6144,
+            vram_free_mb: 5500,
+        },
+        GpuInfo {
+            index: 1,
+            name: "GPU-B".into(),
+            vram_total_mb: 8192,
+            vram_free_mb: 7500,
+        },
+    ];
+    let split = auto_tensor_split_from_gpus(&gpus);
+    assert_eq!(split.len(), 2, "expected 2 split ratios for 2 GPUs");
+    let sum: f64 = split.iter().sum();
+    assert!(
+        (sum - 1.0).abs() < 0.001,
+        "tensor_split must sum to 1.0, got {sum:.6}"
+    );
+    assert!(split[0] < split[1], "smaller GPU must get smaller ratio");
+    assert!(
+        split[0] > 0.3 && split[0] < 0.5,
+        "6 GB ratio is about 0.43, got {:.3}",
+        split[0]
+    );
+
+    let single = vec![GpuInfo {
+        index: 0,
+        name: "GPU".into(),
+        vram_total_mb: 8192,
+        vram_free_mb: 7500,
+    }];
+    assert!(
+        auto_tensor_split_from_gpus(&single).is_empty(),
+        "single GPU must return empty tensor_split"
+    );
+
+    assert!(
+        auto_tensor_split_from_gpus(&[]).is_empty(),
+        "no GPUs must return empty tensor_split"
+    );
+}
+
 /// detect_gpus() must never panic and must return structurally valid results.
 /// On CPU-only CI machines it returns an empty Vec — that is expected and correct.
 #[test]
 fn phase6_hardware_detect_no_panic() {
     let gpus = skycode_runtime::tools::hardware::detect_gpus();
     for gpu in &gpus {
-        assert!(gpu.vram_total_mb > 0, "GPU must report non-zero total VRAM: {gpu:?}");
-        assert!(!gpu.name.is_empty(), "GPU must have a non-empty name: {gpu:?}");
-        assert!(gpu.vram_free_mb <= gpu.vram_total_mb,
-            "free VRAM cannot exceed total: {gpu:?}");
+        assert!(
+            gpu.vram_total_mb > 0,
+            "GPU must report non-zero total VRAM: {gpu:?}"
+        );
+        assert!(
+            !gpu.name.is_empty(),
+            "GPU must have a non-empty name: {gpu:?}"
+        );
+        assert!(
+            gpu.vram_free_mb <= gpu.vram_total_mb,
+            "free VRAM cannot exceed total: {gpu:?}"
+        );
     }
     // Always passes — the critical invariant is that detect_gpus() does not panic.
 }

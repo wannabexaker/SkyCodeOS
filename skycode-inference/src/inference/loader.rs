@@ -1,5 +1,5 @@
 use std::io::{BufRead, BufReader, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ExitStatus};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use skycode_tools::tools::process::spawn_piped_command;
 use thiserror::Error;
 
-use super::registry::{SplitMode, VramBudget};
+use super::registry::{GpuLayerSpec, SplitMode, TensorSplitSpec, VramBudget};
 
 const SERVER_HOST: &str = "127.0.0.1";
 const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -145,7 +145,7 @@ pub fn build_llama_server_argv(options: &ModelLaunchOptions) -> Vec<String> {
         "--threads".to_string(),
         options.threads.to_string(),
         "--n-gpu-layers".to_string(),
-        effective_gpu_layers(options).to_string(),
+        options.n_gpu_layers.to_string(),
         "--port".to_string(),
         options.port.to_string(),
         "--host".to_string(),
@@ -180,19 +180,96 @@ pub fn build_llama_server_argv(options: &ModelLaunchOptions) -> Vec<String> {
     argv
 }
 
-fn effective_gpu_layers(options: &ModelLaunchOptions) -> usize {
-    match options.vram_budget_mb {
-        Some(VramBudget::Mb(0)) => 0,
-        Some(VramBudget::Mb(_)) | Some(VramBudget::Auto(_)) | None => options.n_gpu_layers,
-    }
-}
-
 fn join_tensor_split(tensor_split: &[f64]) -> String {
     tensor_split
         .iter()
         .map(|value| value.to_string())
         .collect::<Vec<_>>()
         .join(",")
+}
+
+/// Estimate how many GPU layers of a model fit in available VRAM.
+///
+/// Formula: layer_cost_mb ~= model_file_size_mb / n_layers * 1.1.
+/// The 1.1 factor accounts for KV cache and activation overhead in GPU RAM.
+/// Returns a value clamped to [0, n_layers].
+pub fn compute_auto_gpu_layers(
+    model_file_size_mb: u64,
+    vram_available_mb: u64,
+    n_layers: u32,
+) -> usize {
+    if n_layers == 0 || model_file_size_mb == 0 {
+        return 0;
+    }
+
+    let layer_cost_mb = (model_file_size_mb as f64 * 1.1 / n_layers as f64).ceil() as u64;
+    if layer_cost_mb == 0 {
+        return n_layers as usize;
+    }
+
+    let computed = (vram_available_mb / layer_cost_mb) as usize;
+    computed.min(n_layers as usize)
+}
+
+/// Compute per-GPU tensor split ratios from each GPU's total VRAM.
+/// Returns an empty Vec if gpus is empty or has only one entry.
+/// The returned ratios sum to exactly 1.0, with the last element adjusted.
+pub fn auto_tensor_split_from_gpus(gpus: &[skycode_tools::tools::hardware::GpuInfo]) -> Vec<f64> {
+    if gpus.len() < 2 {
+        return Vec::new();
+    }
+
+    let total: u64 = gpus.iter().map(|gpu| gpu.vram_total_mb).sum();
+    if total == 0 {
+        return Vec::new();
+    }
+
+    let mut ratios = gpus
+        .iter()
+        .map(|gpu| gpu.vram_total_mb as f64 / total as f64)
+        .collect::<Vec<_>>();
+    let partial_sum: f64 = ratios[..ratios.len() - 1].iter().sum();
+    if let Some(last) = ratios.last_mut() {
+        *last = (1.0 - partial_sum).max(0.0);
+    }
+
+    ratios
+}
+
+pub fn resolve_gpu_layers(
+    spec: &GpuLayerSpec,
+    model_path: &Path,
+    vram_budget: &Option<VramBudget>,
+) -> usize {
+    match spec {
+        GpuLayerSpec::Fixed(value) => *value,
+        GpuLayerSpec::Auto => {
+            let vram_mb = match vram_budget {
+                Some(VramBudget::Mb(value)) => *value,
+                _ => {
+                    let gpus = skycode_tools::tools::hardware::detect_gpus();
+                    gpus.iter().map(|gpu| gpu.vram_free_mb).sum::<u64>()
+                }
+            };
+
+            let model_size_mb = model_path
+                .metadata()
+                .map(|metadata| metadata.len() / (1024 * 1024))
+                .unwrap_or(4000);
+
+            compute_auto_gpu_layers(model_size_mb, vram_mb, 32)
+        }
+    }
+}
+
+pub fn resolve_tensor_split(spec: &TensorSplitSpec) -> Vec<f64> {
+    match spec {
+        TensorSplitSpec::Fixed(values) => values.clone(),
+        TensorSplitSpec::Auto => {
+            let gpus = skycode_tools::tools::hardware::detect_gpus();
+            auto_tensor_split_from_gpus(&gpus)
+        }
+    }
 }
 
 pub fn call_model(prompt: &str, port: u16) -> Result<String, InferenceError> {

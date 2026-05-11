@@ -11,8 +11,8 @@ use skycode_core::skycore::{
 };
 use skycode_graph::graph::impact_query;
 use skycode_inference::inference::{
-    launch_server, InferenceError, ModelLaunchOptions, ModelRegistryError, ModelRegistryWatcher,
-    ModelRuntime,
+    launch_server, resolve_gpu_layers, resolve_tensor_split, InferenceError, ModelLaunchOptions,
+    ModelRegistryError, ModelRegistryWatcher, ModelRuntime,
 };
 use skycode_memory::memory::{search_memories, RetrievalError};
 use skycode_tools::tools::diff::{create_diff, DiffError, DiffProposal};
@@ -271,7 +271,11 @@ fn invoke_model_and_parse_response(
         model_path: Path::new(&model.path).to_path_buf(),
         ctx_size: model.ctx_size,
         threads: model.threads,
-        n_gpu_layers: model.gpu_layers,
+        n_gpu_layers: resolve_gpu_layers(
+            &model.gpu_layers,
+            Path::new(&model.path),
+            &model.vram_budget_mb,
+        ),
         n_cpu_moe: model.n_cpu_moe,
         prompt: None,
         temp: 0.1,
@@ -280,7 +284,7 @@ fn invoke_model_and_parse_response(
         mlock: model.mlock,
         port: model.port,
         kv_offload: model.kv_offload,
-        tensor_split: model.tensor_split.clone(),
+        tensor_split: resolve_tensor_split(&model.tensor_split),
         split_mode: model.split_mode.clone(),
         vram_budget_mb: model.vram_budget_mb.clone(),
     };
