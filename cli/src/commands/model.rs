@@ -7,7 +7,8 @@ use rusqlite::{params, Connection};
 
 use skycode_orchestrator::db::migrations::run_migrations;
 use skycode_orchestrator::inference::{
-    launch_model, ModelLaunchOptions, ModelRegistryWatcher, ModelRuntime,
+    launch_model, resolve_gpu_layers, resolve_tensor_split, ModelLaunchOptions,
+    ModelRegistryWatcher, ModelRuntime,
 };
 
 #[derive(Debug, Subcommand)]
@@ -118,7 +119,7 @@ fn run_model_bench(args: &ModelNameArgs) -> Result<(), Box<dyn std::error::Error
         let run_id = format!("bench-{}-{}", config.name, now_nanos()?);
         let settings_json = format!(
             "{{\"ctx_size\":{},\"gpu_layers\":{},\"threads\":{}}}",
-            config.ctx_size, config.gpu_layers, config.threads
+            config.ctx_size, launch.n_gpu_layers, config.threads
         );
 
         let mut stmt = conn.prepare(
@@ -186,7 +187,11 @@ fn to_launch_options(
         model_path: PathBuf::from(&config.path),
         ctx_size: config.ctx_size,
         threads: config.threads,
-        n_gpu_layers: config.gpu_layers,
+        n_gpu_layers: resolve_gpu_layers(
+            &config.gpu_layers,
+            &PathBuf::from(&config.path),
+            &config.vram_budget_mb,
+        ),
         n_cpu_moe: config.n_cpu_moe,
         prompt,
         temp: 0.1,
@@ -195,7 +200,7 @@ fn to_launch_options(
         mlock: config.mlock,
         port: config.port,
         kv_offload: config.kv_offload,
-        tensor_split: config.tensor_split.clone(),
+        tensor_split: resolve_tensor_split(&config.tensor_split),
         split_mode: config.split_mode.clone(),
         vram_budget_mb: config.vram_budget_mb.clone(),
     }

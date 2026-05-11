@@ -1,4 +1,6 @@
-use skycode_runtime::inference::{ModelConfig, ModelRegistry, ModelRuntime, SplitMode};
+use skycode_runtime::inference::{
+    GpuLayerSpec, ModelConfig, ModelRegistry, ModelRuntime, SplitMode, TensorSplitSpec,
+};
 use skycode_runtime::orchestrator::{classify_task, map_to_model, RouterError, TaskClass};
 
 #[test]
@@ -70,7 +72,7 @@ fn local_model(name: &str, enabled: bool) -> ModelConfig {
         path: "C:/models/local.gguf".to_string(),
         executable: Some("llama-server".to_string()),
         ctx_size: 8192,
-        gpu_layers: 0,
+        gpu_layers: GpuLayerSpec::Fixed(0),
         strengths: Vec::new(),
         enabled,
         threads: 4,
@@ -79,7 +81,7 @@ fn local_model(name: &str, enabled: bool) -> ModelConfig {
         mlock: false,
         port: 18080,
         kv_offload: true,
-        tensor_split: Vec::new(),
+        tensor_split: TensorSplitSpec::Fixed(Vec::new()),
         split_mode: SplitMode::Layer,
         vram_budget_mb: None,
     }
