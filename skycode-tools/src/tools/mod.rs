@@ -1,6 +1,7 @@
 pub mod apply;
 pub mod diff;
 pub mod filesystem;
+pub mod hardware;
 pub mod process;
 pub mod rollback;
 pub mod verify;

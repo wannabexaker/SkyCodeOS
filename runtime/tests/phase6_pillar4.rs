@@ -118,3 +118,17 @@ fn arg_value<'a>(argv: &'a [String], flag: &str) -> Result<&'a str, Box<dyn std:
         .map(|window| window[1].as_str())
         .ok_or_else(|| format!("missing argv flag {flag}").into())
 }
+
+/// detect_gpus() must never panic and must return structurally valid results.
+/// On CPU-only CI machines it returns an empty Vec — that is expected and correct.
+#[test]
+fn phase6_hardware_detect_no_panic() {
+    let gpus = skycode_runtime::tools::hardware::detect_gpus();
+    for gpu in &gpus {
+        assert!(gpu.vram_total_mb > 0, "GPU must report non-zero total VRAM: {gpu:?}");
+        assert!(!gpu.name.is_empty(), "GPU must have a non-empty name: {gpu:?}");
+        assert!(gpu.vram_free_mb <= gpu.vram_total_mb,
+            "free VRAM cannot exceed total: {gpu:?}");
+    }
+    // Always passes — the critical invariant is that detect_gpus() does not panic.
+}

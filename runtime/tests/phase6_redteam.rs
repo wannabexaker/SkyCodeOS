@@ -101,6 +101,7 @@ fn is_approved_command_site(path: &Path) -> bool {
         // all other Command::new calls are prohibited.
         || s.contains("skycode-tools/src/tools/filesystem.rs")
         || s.contains("skycode-tools/src/tools/rollback.rs")
+        || s.contains("skycode-tools/src/tools/hardware.rs")
 }
 
 /// Files that legitimately UPDATE or DELETE rows on non-append-only tables.
