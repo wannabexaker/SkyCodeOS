@@ -1,8 +1,13 @@
 models:
   - name: local-coder
     runtime: local_gguf
-    executable: "C:\\Models\\llama-b9050-bin-win-cpu-x64\\llama-server.exe"
-    path: "C:\\Models\\Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf"
+    # Set executable to the path of your llama-server binary.
+    # Windows example: "C:\\Models\\llama-b9050-bin-win-cpu-x64\\llama-server.exe"
+    # Linux/macOS example: "/usr/local/bin/llama-server"
+    executable: "/path/to/llama-server"
+    # Set path to your GGUF model file.
+    # Recommended: Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf
+    path: "/path/to/model.gguf"
     ctx_size: 16384
     gpu_layers: 0
     strengths: [code_edit, refactor, short_answer]
@@ -15,8 +20,8 @@ models:
 
   - name: local-coder-fast
     runtime: local_gguf
-    executable: "C:\\Models\\llama-b9050-bin-win-cpu-x64\\llama-server.exe"
-    path: "C:\\Models\\Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf"
+    executable: "/path/to/llama-server"
+    path: "/path/to/model.gguf"
     ctx_size: 8192
     gpu_layers: 0
     strengths: [classify, short_answer]

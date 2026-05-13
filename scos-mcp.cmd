@@ -1,3 +1,3 @@
 @echo off
-cd /d C:\Projects\SkyCodeOS
-C:\Projects\SkyCodeOS\target\debug\scos.exe mcp
+cd /d "%~dp0"
+"%~dp0target\debug\scos.exe" mcp
