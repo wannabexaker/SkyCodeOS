@@ -92,6 +92,9 @@ fn sanitize_artifacts(value: Value) -> Value {
         if let Some(v) = obj.remove("new_content") {
             clean.insert("new_content".to_string(), v);
         }
+        if let Some(v) = obj.remove("content") {
+            clean.insert("content".to_string(), v);
+        }
         if let Some(v) = obj.remove("affected_files") {
             clean.insert("affected_files".to_string(), v);
         }

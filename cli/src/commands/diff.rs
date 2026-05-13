@@ -15,7 +15,7 @@ pub fn run(args: &DiffArgs) -> Result<(), Box<dyn std::error::Error>> {
     let content = read_file(&args.file)?;
     // In V1 CLI, we generate a stub diff showing the current content as "before"
     // with an empty "after". The real agent loop will supply the actual edit.
-    let proposal = create_diff(&args.file, &content, "")?;
+    let proposal = create_diff("default", &args.file, &content, "")?;
 
     println!("Diff proposal created:");
     println!("  id:         {}", proposal.id);

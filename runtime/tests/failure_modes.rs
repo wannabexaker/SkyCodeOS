@@ -38,6 +38,7 @@ fn bootstrap_conn() -> Result<Connection, Box<dyn std::error::Error>> {
 
         CREATE TABLE IF NOT EXISTS signing_keys (
             agent_id       TEXT PRIMARY KEY,
+            key_id         TEXT,
             public_key_hex TEXT NOT NULL,
             registered_at  INTEGER NOT NULL
         ) STRICT;",
@@ -68,17 +69,24 @@ fn temp_yaml_path(label: &str) -> std::path::PathBuf {
 #[test]
 fn test_expired_token_rejected() -> Result<(), Box<dyn std::error::Error>> {
     let conn = bootstrap_conn()?;
-    let (kp, pub_key) = make_keypair()?;
-    let diff = create_diff(Path::new("test.rs"), "old", "new")?;
+    let (kp, _pub_key) = make_keypair()?;
+    let diff = create_diff("default", Path::new("test.rs"), "old", "new")?;
 
     // Create a normally-signed token, then force expires_at into the past.
-    let mut token =
-        ApprovalToken::create_signed(diff.id.to_string(), "coder-primary", "nonce-exp", &kp)?;
+    let mut token = ApprovalToken::create_signed(
+        "default",
+        diff.id.to_string(),
+        "coder-primary",
+        "coder-primary",
+        "nonce-exp",
+        &kp,
+    )?;
     token.expires_at = 0; // epoch zero — definitely in the past
 
     let err = validate_token(
         &conn,
         &token,
+        "default",
         &diff.id.to_string(),
         "coder-primary",
         "task-exp",
@@ -98,19 +106,26 @@ fn test_expired_token_rejected() -> Result<(), Box<dyn std::error::Error>> {
 fn test_replay_attack_blocked() -> Result<(), Box<dyn std::error::Error>> {
     let conn = bootstrap_conn()?;
     let (kp, pub_key) = make_keypair()?;
-    let diff = create_diff(Path::new("replay.rs"), "before", "after")?;
+    let diff = create_diff("default", Path::new("replay.rs"), "before", "after")?;
 
     // Register the signing key so validate_token can look it up.
     let key_hex: String = pub_key.iter().map(|b| format!("{b:02x}")).collect();
     register_signing_key(&conn, "coder-primary", &key_hex, 0)?;
 
-    let token =
-        ApprovalToken::create_signed(diff.id.to_string(), "coder-primary", "nonce-replay", &kp)?;
+    let token = ApprovalToken::create_signed(
+        "default",
+        diff.id.to_string(),
+        "coder-primary",
+        "coder-primary",
+        "nonce-replay",
+        &kp,
+    )?;
 
     // First use — must succeed
     validate_token(
         &conn,
         &token,
+        "default",
         &diff.id.to_string(),
         "coder-primary",
         "task-r1",
@@ -120,6 +135,7 @@ fn test_replay_attack_blocked() -> Result<(), Box<dyn std::error::Error>> {
     let err = validate_token(
         &conn,
         &token,
+        "default",
         &diff.id.to_string(),
         "coder-primary",
         "task-r2",

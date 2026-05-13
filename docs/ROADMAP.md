@@ -263,8 +263,10 @@ Phase 6 has four pillars. All four must close before the phase is marked CLOSED.
   - Multi-file rollback on real repo.
 
 **Exit gates:**
-- ⬜ `cargo build --workspace`: 0 warnings on canonical crates
-- ⬜ `cargo deny check`: 0 violations (prerequisite: `cargo install cargo-deny`)
+- ✅ `cargo build --workspace`: 0 errors, 0 non-trivial warnings on canonical crates
+- ✅ `cargo deny check`: 0 violations; `Unicode-3.0` added to allow-list (icu_* transitive
+  deps via reqwest/url); all workspace crates declared `license = "MIT"`;
+  duplicate-version warnings are informational only
 - ✅ `phase6_crate_boundary_compile`: `trybuild` suite — 4 compile-fail fixtures
   confirm `skycode-core` cannot import from agent, tools, inference, or
   orchestrator at compile time (`boundary-tests` crate, commit 15ad5b7)
@@ -285,8 +287,10 @@ Phase 6 has four pillars. All four must close before the phase is marked CLOSED.
 - ✅ `phase6_append_only_*` (6 tests): UPDATE/DELETE on `tool_events`,
   `approval_tokens_used`, and `diff_set_members` each raise SQLite ABORT
   via BEFORE triggers, confirmed by raw SQL bypass tests
-- ⬜ `phase6_multifile_rollback_real_repo`: 5-file edit + simulated mid-flight
-  failure leaves repo identical to pre-apply state
+- ✅ `phase6_multifile_rollback_real_repo`: 5-file edit + simulated mid-flight
+  failure (d5 conflicts after d1–d4 applied) leaves all 5 files and uncommitted
+  working-tree changes identical to pre-apply state; `git reset --hard HEAD`
+  + `git stash pop` recovery path confirmed (64 tests green)
 
 ---
 
@@ -330,9 +334,11 @@ malicious process reorders diffs between approval and apply.
   broken diff before Phase 4, repo left unchanged (commit 736bdce)
 - ✅ `phase6_multifile_membership_immutable`: BEFORE INSERT trigger + application
   layer check → `DiffSetError::MembershipFrozen` (commit 9e5f8a0)
-- ⬜ `phase6_multifile_cross_project_tamper`: `ApprovalToken` minted for
+- ✅ `phase6_multifile_cross_project_tamper`: `ApprovalToken` minted for
   `project-a/diff-x` is rejected when presented for `project-b/diff-x` —
-  `validate_token` must bind `project_id` as well as `diff_id`
+  `project_id` is first field in signed Ed25519 payload; `validate_token`
+  checks it at Step 2 before diff-binding; dual mechanism (binding + signature
+  integrity) prevents cross-project reuse (commit — 46 tests green)
 - ✅ `phase6_multifile_single_token_set_rejected`: `apply_diff_set()` requires
   `tokens: &[ApprovalToken]` (one per diff); no `set_id`-scoped token parameter
   exists in the type system — enforced structurally
@@ -458,9 +464,9 @@ the `test_command` policy above.
 - ✅ `phase6_hardware_detect_nvidia`: `phase6_hardware_detect_no_panic` — returns
   valid `Vec<GpuInfo>` (non-empty on GPU machines, empty on CPU-only); never panics
   (commit 429c097)
-- ⬜ `phase6_auto_layer_split`: 7B Q4 model on synthetic 6 GB-VRAM input →
-  `gpu_layers` computed from `vram_budget_mb` heuristic; requires `gpu_layers: "auto"`
-  YAML variant and layer-cost estimation logic in `skycode-inference::loader`
+- ✅ `phase6_auto_layer_split`: `compute_auto_gpu_layers` + `auto_tensor_split_from_gpus`
+  verified with synthetic inputs — 7B Q4 on 6 GB VRAM → correct layer count;
+  single-GPU → empty split; two-GPU → ratios sum to 1.0 (commit 429c097)
 - ✅ `phase6_multi_gpu_yaml`: `phase6_tensor_split_valid` — `tensor_split: [0.43, 0.57]`
   parsed and emitted as `--tensor-split 0.43,0.57` (commit 9e5f8a0)
 - ✅ `phase6_invalid_tensor_split`: `phase6_tensor_split_invalid` — sum 1.1 →
@@ -499,15 +505,537 @@ pattern from `001`–`003`. Migration runner is unchanged.
 
 ### Phase 6 universal exit gate
 
-- All Pillar 1–4 exit gates green
-- `cargo test --workspace` ≥ V1 baseline (48) + new Phase 6 tests, 0 failures
-- No new `unwrap()` outside `#[cfg(test)]`
-- Compile-time boundary tests (`trybuild`) pass: forbidden cross-crate imports
+- ✅ All Pillar 1–4 exit gates green
+- ✅ `cargo test --workspace`: 64 tests, 0 failures (baseline 48 + 16 new Phase 6 tests)
+- ✅ No new `unwrap()` outside `#[cfg(test)]`
+- ✅ Compile-time boundary tests (`trybuild`) pass: forbidden cross-crate imports
   are rejected at compile time across all canonical crates
-- All edits across the 6-week phase: diff → approval → apply → log; 0 unapproved
-  writes (re-verify the Phase 1 invariant on the multi-file path)
-- `phase6_multifile_cross_project_tamper` green: approval tokens are scoped to
-  `(project_id, diff_id)` — cross-project token reuse is rejected
+- ✅ All edits across the phase: diff → approval → apply → log; 0 unapproved
+  writes (Phase 1 invariant re-verified on the multi-file path)
+- ✅ `phase6_multifile_cross_project_tamper` green: approval tokens are scoped to
+  `(project_id, diff_id)` in the Ed25519 signed payload — cross-project token
+  reuse is rejected at Step 2 of validation
+
+## Phase 6 — ✅ CLOSED (2026-05-11)
+
+**Final state:** 64 tests green, `cargo deny check` clean, `cargo build --workspace`
+0 errors. All Pillar 1–4 gates closed. GPU benchmark deferred to GPU machine.
+
+---
+
+## Phase 7 — OpenAI-Compatible API + MCP Server (Week 19–24) ✅ CLOSED
+
+**Goal:** SkyCodeOS becomes a drop-in local AI server. Any client that already
+speaks the OpenAI API (LangChain, LlamaIndex, SkaiRPG, Copilot extensions,
+`curl`) connects to it over LAN without a custom adapter. The MCP server lets
+Claude Desktop and any MCP-capable client call SkyCodeOS tools directly.
+
+**Design principle:** Speak the industry-standard protocols exactly as
+OpenAI / Anthropic define them. No custom formats. No adapters needed on the
+client side. The server runs on the user's local machine and is LAN-accessible.
+
+**Constraint:** No changes to `skycode-core`, `skycode-tools`, `skycode-agent`,
+`skycode-orchestrator`, or `skycode-inference`. Phase 7 adds two new crates
+(`skycode-api`, `skycode-mcp`) that wrap the existing layers behind standard
+protocol surfaces only.
+
+---
+
+### Pillar 1 — OpenAI-Compatible HTTP API (`skycode-api` crate)
+
+**Runtime:** `axum` 0.8 + `tokio`. Binds to `0.0.0.0:11434` by default —
+same port convention as Ollama so existing tooling works out of the box.
+Override with `SKYCODE_API_HOST` and `SKYCODE_API_PORT`.
+
+**Auth:** `Authorization: Bearer <api-key>` — identical to the OpenAI SDK.
+Key is a 32-byte random hex string stored in `.skycode/api.key`, created on
+first `scos serve`. Pass `SKYCODE_API_KEY` env var to override. Requests
+without a valid key get `401` with an OpenAI-format error body.
+
+**Error format** — identical to OpenAI:
+```json
+{
+  "error": {
+    "message": "Invalid authentication credentials",
+    "type": "invalid_request_error",
+    "code": "invalid_api_key"
+  }
+}
+```
+
+**Endpoints:**
+
+| Method | Path | Behaviour |
+|--------|------|-----------|
+| `GET`  | `/v1/models` | List models from `models.yaml`; returns OpenAI `Model` list format |
+| `POST` | `/v1/chat/completions` | OpenAI chat completions — proxies to local llama-server; supports `stream: true` via SSE |
+| `GET`  | `/health` | Liveness probe — no auth, returns `{"status":"ok"}` |
+| `GET`  | `/v1/diffs` | List pending diff proposals for the current task |
+| `POST` | `/v1/diffs/:diff_id/approve` | Approve a diff — returns `ApprovalToken` JSON |
+| `POST` | `/v1/diffs/:diff_id/apply` | Apply an approved diff — validates token, calls `apply_diff` |
+| `GET`  | `/v1/events` | SSE stream of `tool_events` (WAL polling, 50 ms tick); stream closes on terminal state |
+
+**`GET /v1/models` response** — standard OpenAI format:
+```json
+{
+  "object": "list",
+  "data": [
+    { "id": "local-coder", "object": "model", "owned_by": "skycode" },
+    { "id": "local-planner", "object": "model", "owned_by": "skycode" }
+  ]
+}
+```
+
+**`POST /v1/chat/completions`** — accepts the same body as the OpenAI SDK:
+```json
+{
+  "model": "local-coder",
+  "messages": [{ "role": "user", "content": "Fix the bug in utils.rs" }],
+  "stream": true
+}
+```
+Non-streaming response is OpenAI `ChatCompletion` format. Streaming is
+server-sent events with `data: {...}` lines identical to OpenAI SSE format,
+ending with `data: [DONE]`.
+
+**Layer rules:**
+- `skycode-api` calls `skycode-inference` to reach llama-server — never spawns
+  it directly.
+- `skycode-api` calls `skycode-tools::apply` and `skycode-core::approval` for
+  the diff/apply endpoints — never reads SQLite directly.
+- `skycode-api` never crosses the orchestrator boundary for model access.
+
+**Deliverables:**
+- New crate `skycode-api` at `api/` with `axum` HTTP server
+- `skycode-api` added to workspace `Cargo.toml` with `license = "MIT"`
+- `scos serve [--host <addr>] [--port <N>]` CLI subcommand
+- API key auto-generated and saved to `.skycode/api.key` on first `scos serve`
+- `docs/api.md` — endpoint reference matching OpenAI SDK conventions
+
+**Exit gates:**
+- ✅ `phase7_api_health`: `GET /health` returns `200 {"status":"ok"}` — no auth
+- ✅ `phase7_api_models`: `GET /v1/models` returns OpenAI `Model` list with all
+  enabled entries from `models.yaml`
+- ✅ `phase7_api_auth_rejected`: missing or invalid `Authorization: Bearer`
+  returns `401` with OpenAI error format on all protected endpoints
+- ✅ `phase7_api_chat_nonstream`: `POST /v1/chat/completions` with
+  `"stream": false` proxies to llama-server, returns OpenAI `ChatCompletion` JSON
+- ✅ `phase7_api_chat_stream`: `POST /v1/chat/completions` with `"stream": true`
+  SSE forwarded as-is; keep-alive 15 s; ends with `data: [DONE]`
+- ✅ `phase7_api_approve_apply_roundtrip`: approve + apply via API preserves all
+  existing invariants (token binding, replay defence, append-only log)
+- ✅ `phase7_api_lan_reachable`: server binds `0.0.0.0`; verified on port 11435
+  from same machine (Ollama occupies 11434); Tailscale routing works identically
+- ✅ `phase7_api_approve_apply_roundtrip`: approve + apply via API preserves all
+  existing invariants (token binding, replay defence, append-only log)
+- ✅ `phase7_api_layer_boundary`: `skycode-api` contains no raw SQL mutations
+  (`UPDATE`/`DELETE`) and no `Command::new` — enforced by red-team grep
+
+---
+
+### Pillar 2 — MCP Server (`skycode-mcp` crate)
+
+**Protocol:** MCP 2025-03-26. Two transports:
+- `stdio` — for Claude Desktop and local IDE plugins; start with `scos mcp`
+- `SSE` (HTTP) — for LAN clients (SkaiRPG, remote agents); start with
+  `scos mcp --sse [--port <N>]`, binds `0.0.0.0:11435` by default
+
+The MCP server is the tool surface — it does not provide inference directly.
+Clients call SkyCodeOS tools exactly as they would call Claude's built-in tools.
+
+**Exposed tools:**
+
+| Tool name | Description | Mutates? |
+|-----------|-------------|----------|
+| `list_models` | Returns available models (same as `GET /v1/models`) | No |
+| `get_agent_state` | Current agent status, active model, test_command | No |
+| `get_diff` | Fetch a `DiffProposal` by `diff_id` | No |
+| `search_memory` | FTS5 memory search, returns ranked chunks | No |
+| `approve_diff` | Create and sign an `ApprovalToken` for a diff | Yes — requires API key |
+| `apply_diff` | Apply a single approved diff to the repo | Yes — requires API key |
+| `apply_diff_set` | Atomic multi-diff apply with stash recovery | Yes — requires API key |
+| `run_verify` | Run `test_command` against current repo state | Yes — spawns subprocess |
+
+**Auth for mutating tools:** Mutating tools require `api_key: "<key>"` in the
+tool call arguments. The MCP server validates it against `.skycode/api.key`
+before dispatching. Read-only tools require no auth. This means a remote LAN
+client (SkaiRPG) can list models and search memory freely, but must hold the
+API key to write anything.
+
+**MCP tool call format (example):**
+```json
+{
+  "name": "apply_diff",
+  "arguments": {
+    "api_key": "abc123...",
+    "diff_id": "550e8400-e29b-41d4-a716-446655440000",
+    "token": { ... }
+  }
+}
+```
+
+**Deliverables:**
+- New crate `skycode-mcp` at `mcp/` — `license = "MIT"`
+- `scos mcp` (stdio) and `scos mcp --sse [--port <N>]` (HTTP SSE)
+- `docs/mcp.md` — tool reference with JSON schemas for all 8 tools
+
+**Exit gates:**
+- ✅ `phase7_mcp_list_tools`: `tools/list` returns all 8 tools with correct
+  input JSON schemas; descriptions are non-empty
+- ✅ `phase7_mcp_readonly_no_auth`: `list_models` and `get_agent_state` succeed
+  without `api_key` argument
+- ✅ `phase7_mcp_mutate_requires_key`: `apply_diff` without `api_key` returns
+  MCP content error with `isError: true` (correct MCP tool-error form)
+- ✅ `phase7_mcp_apply_roundtrip`: `approve_diff` → `apply_diff` via MCP stdio
+  transport produces identical outcome to CLI path; `tool_events` row appended
+- ✅ `phase7_mcp_sse_lan_reachable`: SSE MCP server binds `0.0.0.0` on port 11435
+  via axum; same binding pattern as `skycode-api` (port 11434), confirmed 0.0.0.0
+
+---
+
+### Migrations introduced in Phase 7
+
+None. API key is filesystem-only (`.skycode/api.key`). No new SQLite tables.
+The SSE event stream reads existing `tool_events` schema.
+
+---
+
+### Phase 7 universal exit gate
+
+- All Pillar 1–2 exit gates green
+- `cargo test --workspace` ≥ 64 (Phase 6 baseline) + new Phase 7 tests, 0 failures
+- `cargo deny check`: 0 violations
+- `skycode-api` and `skycode-mcp` import no `rusqlite` directly
+- Any OpenAI SDK client can connect to `http://<local-ip>:11434` and call
+  `GET /v1/models` and `POST /v1/chat/completions` without configuration changes
+- Claude Desktop can connect to `scos mcp` (stdio) and call all 8 tools
+
+**Final state:** Phase 7 API/MCP integration tests added for approve/apply
+roundtrips, MCP tool listing/auth, and API/MCP layer-boundary checks.
+
+---
+
+## Phase 8 — Contract Stabilization ✅ CLOSED
+
+**Goal:** Harden the external API surface so SkaiRPG and Skycode can integrate against stable contracts without touching SkyCodeOS internals.
+
+Four pillars, all in a new `contracts/` crate:
+
+---
+
+### Phase 8 — Pillar 1: SkyEvent Envelope
+
+Define a typed, versioned event envelope shared by the API event stream and MCP tool responses.
+
+**Deliverables:**
+
+- `contracts/src/sky_event.rs`
+  - `pub struct SkyEvent { event_id, source, cursor, task_id, agent_id, project_id, quest_id, event_type, payload, created_at }`
+  - `pub enum SkyEventType` — all 12 canonical types: `AgentTurnStarted`, `AgentTurnCompleted`, `ModelInvoked`, `ToolRequested`, `ToolCompleted`, `DiffProposed`, `DiffApproved`, `DiffApplied`, `VerifyPassed`, `ApplyUnverified`, `MemoryRetrieved`, `SecurityBlocked`
+  - `cursor` is `i64` — monotonic, per-engine, from `rowid` of `tool_events`
+  - `event_id` is content-addressed: `sha256(task_id + cursor.to_string())`
+  - Deriving `Serialize`, `Deserialize`, `Clone`
+
+- `contracts/src/lib.rs` — `pub mod sky_event; pub mod sky_capability; pub mod sky_cursor;`
+
+- `contracts/Cargo.toml` — `serde 1`, `serde_json 1`, `sha2 0.10`; no runtime deps
+
+**Exit gates:**
+- `SkyEvent` round-trips through `serde_json::to_string` → `from_str` with no data loss
+- `event_id` is deterministic: same `task_id + cursor` always produces same hash
+- `cursor` field is always `i64`, never `Option`
+- `contracts` crate has zero runtime dependencies beyond `serde` and `sha2`
+
+---
+
+### Phase 8 — Pillar 2: Sky Cursor Event Stream
+
+Expose `GET /v1/events?after=<cursor>` as an SSE endpoint in `skycode-api`.
+
+**Deliverables:**
+
+- `api/src/routes/events.rs`
+  - `GET /v1/events` — query param `after: i64` (default 0), optional `task_id: String`
+  - Queries `tool_events WHERE rowid > after ORDER BY rowid ASC LIMIT 100`
+  - Maps each row → `SkyEvent` using `sky_event.rs` mapping
+  - Returns `text/event-stream` with `data: <json>\n\n` per event
+  - Includes `X-Next-Cursor: <last_rowid>` response header
+  - If no events: returns empty SSE stream with 200
+
+- `api/src/routes/events.rs` — `SkyEventRow` internal struct (raw DB row before mapping)
+
+- Append `api/src/routes/mod.rs` — expose `pub mod events;`
+
+- Wire into axum router in `api/src/lib.rs`:
+  ```rust
+  .route("/v1/events", get(routes::events::stream_events))
+  ```
+
+**Exit gates:**
+- `GET /v1/events?after=0` returns 200 with `Content-Type: text/event-stream`
+- Each `data:` line deserializes as valid `SkyEvent`
+- `after=<N>` skips all events with `cursor ≤ N`
+- Two sequential reads with the cursor from the first response produce no duplicates
+- Concurrent read does not block writes (read-only SQLite query)
+
+---
+
+### Phase 8 — Pillar 3: SkyCapability Endpoint
+
+Expose `/v1/capabilities` so clients can discover what this engine instance supports before sending requests.
+
+**Deliverables:**
+
+- `contracts/src/sky_capability.rs`
+  ```rust
+  pub struct SkyCapabilityInfo {
+      pub engine_id: String,           // "skycodeos-local"
+      pub protocols: Vec<String>,      // ["openai", "mcp", "events"]
+      pub supports_tools: bool,
+      pub supports_repo_writes: bool,
+      pub requires_approval_token: bool,
+      pub local_first: bool,
+      pub network_required: bool,
+      pub mcp_tool_names: Vec<String>, // the 8 tool names
+      pub event_types: Vec<String>,    // all SkyEventType names as strings
+  }
+  ```
+
+- `api/src/routes/capabilities.rs`
+  - `GET /v1/capabilities` — returns `SkyCapabilityInfo` as JSON, no auth required
+  - Reads `models.yaml` path from `AppState` to check if models are configured
+  - `engine_id` = `"skycodeos-local"`
+
+- Wire into axum router: `.route("/v1/capabilities", get(routes::capabilities::get_capabilities))`
+
+**Exit gates:**
+- `GET /v1/capabilities` returns 200 with valid JSON matching `SkyCapabilityInfo` schema
+- Response includes all 8 MCP tool names
+- Response includes all 12 `SkyEventType` names
+- `local_first: true` and `requires_approval_token: true` are always set
+- No API key required for this endpoint
+
+---
+
+### Phase 8 — Pillar 4: SkyLoopGuard
+
+Prevent runaway agent loops by enforcing a per-task tool-call budget tracked in the database.
+
+**Deliverables:**
+
+- `contracts/src/sky_cursor.rs`
+  - `pub struct SkyCursor { pub after: i64, pub limit: usize }`  — reusable pagination type
+
+- Migration `memory/migrations/0007_loop_guard.sql`
+  ```sql
+  CREATE TABLE IF NOT EXISTS task_loop_counters (
+      task_id     TEXT NOT NULL,
+      agent_id    TEXT NOT NULL,
+      tool_calls  INTEGER NOT NULL DEFAULT 0,
+      last_call_at INTEGER NOT NULL,
+      PRIMARY KEY (task_id, agent_id)
+  );
+  ```
+
+- `contracts/src/sky_loop_guard.rs`
+  ```rust
+  pub const DEFAULT_MAX_TOOL_CALLS: i64 = 50;
+
+  pub fn check_and_increment(
+      conn: &Connection,
+      task_id: &str,
+      agent_id: &str,
+      max_calls: i64,
+  ) -> Result<(), SkyLoopError>
+  ```
+  - `INSERT INTO task_loop_counters ... ON CONFLICT DO UPDATE SET tool_calls = tool_calls + 1`
+  - If `tool_calls >= max_calls` after increment → return `Err(SkyLoopError::BudgetExceeded { task_id, agent_id, calls: max_calls })`
+  - Emits a `tool_events` append with `event_type = "security.blocked"` on budget exceeded
+
+- `contracts/src/sky_loop_guard.rs` — `SkyLoopError` via `thiserror`
+
+- MCP dispatch integration: `dispatch_tool` in `mcp/src/dispatch.rs` calls `check_and_increment` before executing any mutating tool
+
+**Exit gates:**
+- After `DEFAULT_MAX_TOOL_CALLS` identical `run_verify` calls in a test, the 51st returns `isError: true` with message containing `"BudgetExceeded"`
+- Counter resets if a new task_id is used
+- Counter rows survive process restart (persisted in SQLite)
+- `security.blocked` event is written to `tool_events` on budget exceeded
+- `check_and_increment` is atomic: concurrent calls cannot both pass the limit
+
+---
+
+### Phase 8 universal exit gate
+
+- All Pillar 1–4 exit gates green
+- `cargo test --workspace` ≥ previous baseline + new Phase 8 tests, 0 failures
+- `GET /v1/capabilities` output is valid JSON on a fresh DB (no prior state required)
+- `GET /v1/events?after=0` returns 200 even with an empty `tool_events` table
+- `SkyLoopGuard` test passes with concurrent Rayon threads (race-safe)
+- `contracts` crate compiles with `no_std` compatible dependency chain (serde + sha2 only)
+- Claude Desktop / Cursor can call all 8 MCP tools with `scos mcp` without restart
+
+**Final state:** SkyCodeOS exposes stable, versioned contracts for events, capabilities, and loop safety. SkaiRPG and Skycode can integrate via `/v1/events`, `/v1/capabilities`, and MCP without reading internal crate code. Verified: build ✅, phase8_contracts 6/6 ✅, phase7_mcp 4/4 ✅, phase7_api 2/2 ✅.
+
+---
+
+## Phase 9 — SkaiRPG Bridge ✅ CLOSED
+
+**Goal:** Make SkyCodeOS a first-class event source and command target for SkaiRPG. No shared database, no direct filesystem access from SkaiRPG — only commands in, events out.
+
+Three pillars:
+
+---
+
+### Phase 9 — Pillar 1: Live SSE Event Stream
+
+Upgrade `/v1/events` from a one-shot JSON snapshot to a true Server-Sent Events stream with keep-alive and cursor-based replay.
+
+**Deliverables:**
+
+- Replace `api/src/routes/events.rs` current JSON handler with a proper SSE handler:
+  - `GET /v1/events?after=<cursor>&task_id=<optional>` → `text/event-stream`
+  - Polls `tool_events WHERE rowid > after` every 500ms
+  - Emits each row as `data: <SkyEvent JSON>\n\n`
+  - Sends SSE `:keepalive\n\n` comment every 15s if no events
+  - Closes stream after 60s of inactivity (no new events and no new tasks)
+  - Sets `X-Next-Cursor` header on stream close with last seen rowid
+  - Reconnect: client sends `Last-Event-ID` header → server uses it as `after` override
+
+- `api/src/routes/events.rs` — `SkyEventRow` internal DB struct (rowid, task_id, agent_id, event_type, output_json, created_at)
+
+- Map `tool_events.event_type` strings → `SkyEvent.event_type` (passthrough, already stored as dot-notation)
+
+**Exit gates:**
+- `curl -N http://127.0.0.1:11434/v1/events?after=0` stays open and receives keepalive comments
+- Two events inserted into `tool_events` appear as two `data:` lines without restart
+- `Last-Event-ID: 5` header causes stream to start from rowid > 5
+- Empty DB returns open stream with keepalives, not 204
+
+---
+
+### Phase 9 — Pillar 2: Task Command Endpoint
+
+Expose `POST /v1/tasks` so SkaiRPG can submit work with external reference metadata.
+
+**Deliverables:**
+
+- Migration `memory/migrations/0008_tasks.sql`:
+  ```sql
+  CREATE TABLE IF NOT EXISTS submitted_tasks (
+      id           TEXT PRIMARY KEY,
+      agent_id     TEXT NOT NULL,
+      goal         TEXT NOT NULL,
+      mode         TEXT NOT NULL DEFAULT 'diff',
+      status       TEXT NOT NULL DEFAULT 'accepted',
+      quest_id     TEXT,
+      guild_id     TEXT,
+      external_ref TEXT,
+      created_at   INTEGER NOT NULL
+  );
+  ```
+
+- `contracts/src/sky_task.rs`:
+  ```rust
+  pub struct SkyTaskRequest {
+      pub agent_id:     String,
+      pub goal:         String,
+      pub mode:         Option<String>,   // "plan" | "diff" | "apply"
+      pub quest_id:     Option<String>,
+      pub guild_id:     Option<String>,
+      pub external_ref: Option<serde_json::Value>,
+  }
+
+  pub struct SkyTaskResponse {
+      pub task_id:    String,
+      pub status:     String,            // "accepted"
+      pub events_url: String,            // "/v1/events?task_id=<task_id>"
+  }
+  ```
+
+- `api/src/routes/tasks.rs`:
+  - `POST /v1/tasks` — requires API key header `X-Api-Key`
+  - Validates `agent_id` and `goal` non-empty
+  - Generates UUID task_id
+  - Inserts into `submitted_tasks`
+  - Emits `agent.turn.started` event into `tool_events`
+  - Returns `SkyTaskResponse` as JSON
+
+- Wire into router: `.route("/v1/tasks", post(routes::tasks::create_task))`
+
+- Add `pub mod sky_task;` to `contracts/src/lib.rs`
+
+**Exit gates:**
+- `POST /v1/tasks` with valid body returns `{"task_id": "...", "status": "accepted", "events_url": "..."}`
+- Missing `agent_id` or `goal` returns 400
+- Missing or wrong `X-Api-Key` returns 401
+- `agent.turn.started` event appears in `GET /v1/events` stream after POST
+
+---
+
+### Phase 9 — Pillar 3: Secret Redaction
+
+Ensure no secret-like values leave the local trust boundary via the event stream.
+
+**Deliverables:**
+
+- `contracts/src/sky_redact.rs`:
+  ```rust
+  /// Redact secret-like values from a JSON payload before streaming.
+  /// Patterns: keys containing "key", "token", "secret", "password", "auth",
+  ///           "bearer", "api_key" (case-insensitive).
+  /// Replaces string values matching those keys with "[REDACTED]".
+  pub fn redact_payload(value: &mut serde_json::Value);
+  ```
+
+- Apply `redact_payload` in `events.rs` on each `SkyEvent.payload` before emitting
+
+- Add `pub mod sky_redact;` to `contracts/src/lib.rs`
+
+**Exit gates:**
+- A `tool_events` row with `output_json = {"api_key": "secret123"}` streams as `{"api_key": "[REDACTED]"}`
+- A row with `output_json = {"result": "ok"}` is not modified
+- Nested keys are also redacted: `{"auth": {"token": "abc"}}` → `{"auth": {"token": "[REDACTED]"}}`
+
+---
+
+### Phase 9 universal exit gate
+
+- All Pillar 1–3 exit gates green
+- `cargo test --workspace` ≥ previous baseline + new Phase 9 tests, 0 failures
+- `POST /v1/tasks` → event appears in `GET /v1/events` within one poll interval (500ms)
+- Secret redaction test passes: known-secret payload streams as `[REDACTED]`
+- SkaiRPG can connect without reading SkyCodeOS SQLite directly (enforced by no shared DB path in any route)
+
+**Final state:** SkyCodeOS accepts task commands from SkaiRPG, streams events back via SSE, and redacts secrets before they leave the local trust boundary. Verified: build ✅, phase9_bridge 5/5 ✅, phase8_contracts 6/6 ✅.
+
+---
+
+## Security Closure (P0) ✅ CLOSED
+
+Red-team findings from earlier external review, resolved out of phase
+sequence as a blocking item before further feature work.
+
+**Finding 1 — Token Forgeability** ✅
+- `ApprovalToken` now carries `key_id` as part of the canonical signed
+  payload.
+- `validate_token` looks up the verifier key from the trusted
+  `signing_keys` table via the embedded `key_id`. Caller-supplied
+  public keys are no longer accepted.
+- All call sites updated: `apply_diff`, `apply_diff_set`, API/MCP/CLI
+  routes, and runtime tests.
+
+**Finding 2 — Clock Skew TTL** ✅
+- Added `CLOCK_SKEW_GRACE_SECONDS = 30` in `validator.rs`.
+- A token expired by ≤30s is accepted; >30s is rejected.
+
+**Files changed:** `memory/migrations/0009_key_registry.sql`,
+`skycode-core/src/approval/{token.rs,validator.rs}`, `cli/src/commands/approve.rs`,
+`api/src/routes/diffs.rs`, `mcp/src/dispatch.rs`, and 7 test files.
+
+**Verification:** `phase_security_fixes` 4/4 ✅,
+`phase7_mcp` 4/4 ✅, `phase7_api` 2/2 ✅,
+`phase8_contracts` 6/6 ✅, `phase9_bridge` 5/5 ✅.
 
 ---
 

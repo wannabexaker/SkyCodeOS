@@ -7,6 +7,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct DiffProposal {
     pub id: Uuid,
+    pub project_id: String,
     pub diff_text: String,
     pub file_path: String,
     pub created_at: i64,
@@ -20,7 +21,12 @@ pub enum DiffError {
     InvalidSystemTime,
 }
 
-pub fn create_diff(file_path: &Path, before: &str, after: &str) -> Result<DiffProposal, DiffError> {
+pub fn create_diff(
+    project_id: impl Into<String>,
+    file_path: &Path,
+    before: &str,
+    after: &str,
+) -> Result<DiffProposal, DiffError> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| DiffError::InvalidSystemTime)?
@@ -41,6 +47,7 @@ pub fn create_diff(file_path: &Path, before: &str, after: &str) -> Result<DiffPr
 
     Ok(DiffProposal {
         id: Uuid::new_v4(),
+        project_id: project_id.into(),
         diff_text,
         file_path: file_path_str,
         created_at,

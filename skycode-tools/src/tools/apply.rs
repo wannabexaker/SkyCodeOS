@@ -57,11 +57,13 @@ pub fn apply_diff(
     expected_agent_id: &str,
     task_id: &str,
     repo_path: &Path,
+    project_id: &str,
     diff: &DiffProposal,
 ) -> Result<(), ApplyError> {
     validate_token(
         conn,
         token,
+        project_id,
         &diff.id.to_string(),
         expected_agent_id,
         task_id,
@@ -100,6 +102,7 @@ pub fn apply_diff_set(
     expected_agent_id: &str,
     task_id: &str,
     repo_path: &Path,
+    project_id: &str,
     diffs: &[DiffProposal],
 ) -> Result<(), DiffSetApplyError> {
     let members = get_diff_set_members(conn, set_id).map_err(|err| match err {
@@ -133,12 +136,18 @@ pub fn apply_diff_set(
             .find(|token| token.diff_id == member.diff_id)
             .ok_or_else(|| DiffSetApplyError::MissingToken(member.diff_id.clone()))?;
 
-        validate_token(conn, token, &member.diff_id, expected_agent_id, task_id).map_err(
-            |source| DiffSetApplyError::Validation {
-                diff_id: member.diff_id.clone(),
-                source,
-            },
-        )?;
+        validate_token(
+            conn,
+            token,
+            project_id,
+            &member.diff_id,
+            expected_agent_id,
+            task_id,
+        )
+        .map_err(|source| DiffSetApplyError::Validation {
+            diff_id: member.diff_id.clone(),
+            source,
+        })?;
     }
 
     // Phase 3 — git stash.
@@ -178,6 +187,15 @@ pub fn apply_diff_set(
             record_diff_applied_best_effort(conn, tokens, task_id, member, diff);
             continue;
         }
+
+        // Mid-flight failure: reset working tree to pre-apply state, then restore stash
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(repo_path)
+            .arg("reset")
+            .arg("--hard")
+            .arg("HEAD")
+            .output();
 
         if stashed {
             let _ = Command::new("git")

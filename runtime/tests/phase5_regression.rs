@@ -44,7 +44,7 @@ fn phase1_gate_50_edit_cycles_zero_unapproved_writes() -> Result<(), Box<dyn std
         fs::write(&abs, baseline)?;
         let mid = format!("cycle-{cycle}");
         let after = format!("anchor-top\n{}\nanchor-bottom\n", mid);
-        let mut diff = create_diff(rel, baseline, &after)?;
+        let mut diff = create_diff("default", rel, baseline, &after)?;
         diff.diff_text = format!(
             "diff --git a/{p} b/{p}\n--- a/{p}\n+++ b/{p}\n@@ -1,3 +1,3 @@\n anchor-top\n-baseline\n+{mid}\n anchor-bottom\n",
             p = rel.display(),
@@ -52,7 +52,9 @@ fn phase1_gate_50_edit_cycles_zero_unapproved_writes() -> Result<(), Box<dyn std
         );
 
         let token = ApprovalToken::create_signed(
+            "default",
             diff.id.to_string(),
+            agent_id,
             agent_id,
             format!("n-{cycle}"),
             &key_pair,
@@ -60,6 +62,7 @@ fn phase1_gate_50_edit_cycles_zero_unapproved_writes() -> Result<(), Box<dyn std
         validate_token(
             &precheck_conn,
             &token,
+            "default",
             &diff.id.to_string(),
             agent_id,
             &format!("task-pre-{cycle}"),
@@ -71,6 +74,7 @@ fn phase1_gate_50_edit_cycles_zero_unapproved_writes() -> Result<(), Box<dyn std
             agent_id,
             &format!("task-{cycle}"),
             &repo,
+            "default",
             &diff,
         )?;
 

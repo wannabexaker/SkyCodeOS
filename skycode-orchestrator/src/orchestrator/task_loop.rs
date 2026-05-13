@@ -1,3 +1,5 @@
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -7,7 +9,8 @@ use thiserror::Error;
 use skycode_agent::agent::identity::{load_coder_primary_identity, IdentityError};
 use skycode_agent::agent::intent::{build_intent, AgentIntent};
 use skycode_core::skycore::{
-    strip_provider_fields, ModelPolicy, SkyCoreConstraints, SkyCoreRequest, SkyCoreResponse,
+    strip_provider_fields, ModelPolicy, SkyCoreArtifact, SkyCoreConstraints, SkyCoreRequest,
+    SkyCoreResponse,
 };
 use skycode_graph::graph::impact_query;
 use skycode_inference::inference::{
@@ -104,11 +107,7 @@ pub fn run_task_loop(
     let response = invoke_model_and_parse_response(conn, &repo_root, &request, task_class)?;
 
     // 6) store diff proposal + return to CLI
-    let artifact = response
-        .artifacts
-        .iter()
-        .find(|a| a.kind == "diff" || a.kind == "rewrite")
-        .ok_or(OrchestratorError::MissingDiffArtifact)?;
+    let artifact = select_diff_artifact(&response)?;
 
     let file_path = artifact
         .affected_files
@@ -116,7 +115,7 @@ pub fn run_task_loop(
         .and_then(|v| v.first().cloned())
         .unwrap_or_else(|| "README.md".to_string());
 
-    let mut diff = create_diff(Path::new(&file_path), "", "")?;
+    let mut diff = create_diff(&input.project_id, Path::new(&file_path), "", "")?;
 
     // Prefer new_content (full-file rewrite) — compute the diff ourselves so it
     // is always correct regardless of model quality.
@@ -124,23 +123,7 @@ pub fn run_task_loop(
         let old_content = std::fs::read_to_string(repo_root.join(&file_path))
             .unwrap_or_default()
             .replace("\r\n", "\n");
-        let new_normalized = new_content.replace("\r\n", "\n");
-        let patch_obj = create_patch(&old_content, &new_normalized);
-        let patch_str = format!("{patch_obj}");
-        // diffy emits "--- original\n+++ modified\n..." headers; replace with git-style.
-        let git_patch = if patch_str.starts_with("--- ") {
-            let body = patch_str
-                .splitn(3, '\n')
-                .nth(2)
-                .unwrap_or(&patch_str)
-                .to_string();
-            // Include diff --git header so git apply -p1 strips the a/ b/ prefixes correctly.
-            format!(
-                "diff --git a/{file_path} b/{file_path}\n--- a/{file_path}\n+++ b/{file_path}\n{body}"
-            )
-        } else {
-            patch_str
-        };
+        let git_patch = build_rewrite_patch(&file_path, &old_content, new_content);
         if !git_patch.trim().is_empty() {
             diff.diff_text = git_patch;
         }
@@ -170,6 +153,97 @@ pub fn run_task_loop(
         diff,
         response_summary: response.summary,
     })
+}
+
+pub fn select_diff_artifact(
+    response: &SkyCoreResponse,
+) -> Result<SkyCoreArtifact, OrchestratorError> {
+    response
+        .artifacts
+        .iter()
+        .find(|a| is_diff_artifact_kind(&a.kind))
+        .map(normalize_diff_artifact)
+        .ok_or(OrchestratorError::MissingDiffArtifact)
+}
+
+fn is_diff_artifact_kind(kind: &str) -> bool {
+    matches!(kind, "diff" | "rewrite" | "file" | "create")
+}
+
+fn normalize_diff_artifact(artifact: &SkyCoreArtifact) -> SkyCoreArtifact {
+    let mut normalized = artifact.clone();
+
+    if matches!(artifact.kind.as_str(), "file" | "create") {
+        normalized.kind = "rewrite".to_string();
+
+        if normalized.new_content.is_none() {
+            normalized.new_content = normalized.content.clone();
+        }
+
+        let needs_affected_files = normalized
+            .affected_files
+            .as_ref()
+            .map(|files| files.is_empty())
+            .unwrap_or(true);
+
+        if needs_affected_files && !normalized.id.trim().is_empty() {
+            normalized.affected_files = Some(vec![normalized.id.clone()]);
+        }
+    }
+
+    normalized
+}
+
+pub fn build_rewrite_patch(file_path: &str, old_content: &str, new_content: &str) -> String {
+    let old_normalized = old_content.replace("\r\n", "\n");
+    let new_normalized = new_content.replace("\r\n", "\n");
+    let patch_obj = create_patch(&old_normalized, &new_normalized);
+    let patch_str = format!("{patch_obj}");
+
+    if patch_str.trim().is_empty() {
+        return String::new();
+    }
+
+    let body = diffy_patch_body(&patch_str);
+
+    if old_normalized.is_empty() && !new_normalized.is_empty() {
+        return format!(
+            "diff --git a/{file_path} b/{file_path}\n\
+new file mode 100644\n\
+--- /dev/null\n\
++++ b/{file_path}\n\
+{body}"
+        );
+    }
+
+    if !old_normalized.is_empty() && new_normalized.is_empty() {
+        return format!(
+            "diff --git a/{file_path} b/{file_path}\n\
+deleted file mode 100644\n\
+--- a/{file_path}\n\
++++ /dev/null\n\
+{body}"
+        );
+    }
+
+    if patch_str.starts_with("--- ") {
+        return format!(
+            "diff --git a/{file_path} b/{file_path}\n\
+--- a/{file_path}\n\
++++ b/{file_path}\n\
+{body}"
+        );
+    }
+
+    patch_str
+}
+
+fn diffy_patch_body(patch_str: &str) -> String {
+    patch_str
+        .splitn(3, '\n')
+        .nth(2)
+        .unwrap_or(patch_str)
+        .to_string()
 }
 
 fn resolve_active_profile(conn: &Connection, input: &TaskLoopInput) -> String {
@@ -297,6 +371,7 @@ fn invoke_model_and_parse_response(
 
     let handle = launch_server(&launch)?;
     let line = handle.call_model(&prompt)?;
+    append_raw_model_response(repo_root, &request.goal, &line);
     let json_text = extract_json(&line);
 
     if std::env::var("SKYCODE_DEBUG").is_ok() {
@@ -364,6 +439,56 @@ fn extract_json(raw: &str) -> &str {
         .or_else(|| s.strip_prefix("```"))
         .unwrap_or(s);
     s.strip_suffix("```").unwrap_or(s).trim()
+}
+
+fn append_raw_model_response(repo_root: &Path, goal: &str, raw_response: &str) {
+    let _ = (|| -> std::io::Result<()> {
+        let debug_dir = repo_root.join(".skycode").join("debug");
+        fs::create_dir_all(&debug_dir)?;
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(debug_dir.join("last_model_response.txt"))?;
+
+        writeln!(file, "=== {} goal: {} ===", iso8601_utc_now(), goal)?;
+        writeln!(file, "{raw_response}")?;
+        writeln!(file, "----------------------------------------")?;
+        Ok(())
+    })();
+}
+
+fn iso8601_utc_now() -> String {
+    let duration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let total_seconds = duration.as_secs();
+    let days = (total_seconds / 86_400) as i64;
+    let seconds_of_day = total_seconds % 86_400;
+    let (year, month, day) = civil_from_days(days);
+    let hour = seconds_of_day / 3_600;
+    let minute = (seconds_of_day % 3_600) / 60;
+    let second = seconds_of_day % 60;
+
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
+}
+
+fn civil_from_days(days_since_unix_epoch: i64) -> (i32, u32, u32) {
+    let z = days_since_unix_epoch + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let day_of_era = z - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let mut year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
+
+    if month <= 2 {
+        year += 1;
+    }
+
+    (year as i32, month as u32, day as u32)
 }
 
 fn extract_file_hint(goal: &str) -> Option<String> {
@@ -473,7 +598,8 @@ Return exactly:\n\
         );
     }
 
-    // New file creation: ask for a unified diff (additive, -0,0 hunk).
+    // New file creation: ask for complete file content so the runtime computes
+    // the diff itself.
     format!(
         "You are coder-primary. Respond ONLY with a JSON object, with no markdown and no prose outside the JSON.\n\
 Task: {}\n\n\
@@ -485,9 +611,9 @@ Return a SkyCore response object with this exact shape:\n\
   \"summary\": \"short summary\",\n\
   \"artifacts\": [\n\
     {{\n\
-      \"kind\": \"diff\",\n\
+      \"kind\": \"rewrite\",\n\
       \"id\": \"patch-001\",\n\
-      \"patch_unified\": \"unified diff text\",\n\
+      \"new_content\": \"complete file content here\",\n\
       \"affected_files\": [\"relative/path.rs\"]\n\
     }}\n\
   ],\n\
@@ -495,7 +621,9 @@ Return a SkyCore response object with this exact shape:\n\
   \"requires_approval\": true,\n\
   \"error\": null\n\
 }}\n\
-The patch_unified value must be a valid unified diff. If you cannot produce a safe diff, return an empty artifacts array.",
+Use the actual target path in affected_files, for example \"CHANGELOG.md\" for a changelog.\n\
+The new_content value must be the complete file content. If you cannot produce a safe file rewrite, return an empty artifacts array.\n\
+The only valid kind values are \"diff\" (for edits to existing files via unified diff) and \"rewrite\" (for full file replacement or new file creation). Do NOT invent other kinds.",
         request.goal, request.task_id
     )
 }

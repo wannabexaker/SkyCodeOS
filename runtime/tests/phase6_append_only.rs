@@ -153,8 +153,7 @@ fn insert_diff_set_and_member(conn: &Connection) -> rusqlite::Result<()> {
 }
 
 #[test]
-fn phase6_append_only_diff_set_members_update_blocked() -> Result<(), Box<dyn std::error::Error>>
-{
+fn phase6_append_only_diff_set_members_update_blocked() -> Result<(), Box<dyn std::error::Error>> {
     let conn = open_migrated_mem_db()?;
     // Use the application function to create set + member atomically (members first).
     skycode_runtime::db::create_diff_set(
@@ -184,8 +183,7 @@ fn phase6_append_only_diff_set_members_update_blocked() -> Result<(), Box<dyn st
 }
 
 #[test]
-fn phase6_append_only_diff_set_members_delete_blocked() -> Result<(), Box<dyn std::error::Error>>
-{
+fn phase6_append_only_diff_set_members_delete_blocked() -> Result<(), Box<dyn std::error::Error>> {
     let conn = open_migrated_mem_db()?;
     skycode_runtime::db::create_diff_set(
         &conn,

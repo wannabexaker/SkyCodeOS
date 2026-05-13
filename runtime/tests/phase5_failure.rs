@@ -20,11 +20,22 @@ use uuid::Uuid;
 fn test_expired_token_rejected() -> Result<(), Box<dyn std::error::Error>> {
     let temp = TempDir::new()?;
     let conn = open_migrated_db(&temp)?;
-    let (key_pair, public_key) = make_keypair()?;
-    let diff = create_diff(Path::new("src/lib.rs"), "", "pub fn hello() {}\n")?;
+    let (key_pair, _public_key) = make_keypair()?;
+    let diff = create_diff(
+        "default",
+        Path::new("src/lib.rs"),
+        "",
+        "pub fn hello() {}\n",
+    )?;
     let now = unix_now()?;
-    let mut token =
-        ApprovalToken::create_signed(diff.id.to_string(), "coder-primary", "expired", &key_pair)?;
+    let mut token = ApprovalToken::create_signed(
+        "default",
+        diff.id.to_string(),
+        "coder-primary",
+        "coder-primary",
+        "expired",
+        &key_pair,
+    )?;
     token.created_at = now - 400;
     token.expires_at = now - 100;
 
@@ -34,6 +45,7 @@ fn test_expired_token_rejected() -> Result<(), Box<dyn std::error::Error>> {
         "coder-primary",
         "task-expired",
         temp.path(),
+        "default",
         &diff,
     )
     .expect_err("expired token must reject before applying");
@@ -61,14 +73,21 @@ fn test_patch_conflict_rejected() -> Result<(), Box<dyn std::error::Error>> {
 
     let diff = DiffProposal {
         id: Uuid::new_v4(),
+        project_id: "default".to_string(),
         file_path: "src/lib.rs".to_string(),
         created_at: unix_now()?,
         diff_text: "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-pub fn missing() {}\n+pub fn changed() {}\n".to_string(),
     };
     insert_diff_proposal(&conn, "task-conflict", &diff)?;
 
-    let token =
-        ApprovalToken::create_signed(diff.id.to_string(), "coder-primary", "conflict", &key_pair)?;
+    let token = ApprovalToken::create_signed(
+        "default",
+        diff.id.to_string(),
+        "coder-primary",
+        "coder-primary",
+        "conflict",
+        &key_pair,
+    )?;
 
     let err = apply_diff(
         &conn,
@@ -76,6 +95,7 @@ fn test_patch_conflict_rejected() -> Result<(), Box<dyn std::error::Error>> {
         "coder-primary",
         "task-conflict",
         &repo,
+        "default",
         &diff,
     )
     .expect_err("conflicting patch must fail");
@@ -233,11 +253,17 @@ fn test_replay_attack_rejected() -> Result<(), Box<dyn std::error::Error>> {
     let key_hex: String = public_key.iter().map(|b| format!("{b:02x}")).collect();
     register_signing_key(&conn, "coder-primary", &key_hex, unix_now()?)?;
 
-    let mut diff = create_diff(Path::new("src/lib.rs"), "", "")?;
+    let mut diff = create_diff("default", Path::new("src/lib.rs"), "", "")?;
     diff.diff_text = "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-pub fn hello() {}\n+pub fn hello() { println!(\"hi\"); }\n".to_string();
 
-    let token =
-        ApprovalToken::create_signed(diff.id.to_string(), "coder-primary", "replay", &key_pair)?;
+    let token = ApprovalToken::create_signed(
+        "default",
+        diff.id.to_string(),
+        "coder-primary",
+        "coder-primary",
+        "replay",
+        &key_pair,
+    )?;
 
     apply_diff(
         &conn,
@@ -245,6 +271,7 @@ fn test_replay_attack_rejected() -> Result<(), Box<dyn std::error::Error>> {
         "coder-primary",
         "task-replay",
         &repo,
+        "default",
         &diff,
     )?;
 
@@ -254,6 +281,7 @@ fn test_replay_attack_rejected() -> Result<(), Box<dyn std::error::Error>> {
         "coder-primary",
         "task-replay",
         &repo,
+        "default",
         &diff,
     )
     .expect_err("same token must be rejected on replay");
