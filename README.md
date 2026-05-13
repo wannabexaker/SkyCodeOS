@@ -76,8 +76,16 @@ cargo run -p skycode-cli -- ask "add error handling to src/lib.rs"
 **Requirements:**
 - Rust (stable)
 - Git (in PATH)
-- `llama-server.exe` at `C:\Models\llama-b9050-bin-win-cpu-x64\llama-server.exe`
-- `Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf` at `C:\Models\`
+- `llama-server` binary from [llama.cpp releases](https://github.com/ggml-org/llama.cpp/releases)
+- A GGUF model — recommended: `Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf` from [HuggingFace](https://huggingface.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF)
+
+**Configure your model paths** in `agents/models.yaml`:
+
+```yaml
+executable: "/path/to/llama-server"   # your llama-server binary
+path: "/path/to/model.gguf"           # your GGUF model file
+port: 18080                            # local port (change if conflict)
+```
 
 **Run from the project root (must be a git repo):**
 
@@ -85,8 +93,6 @@ cargo run -p skycode-cli -- ask "add error handling to src/lib.rs"
 git init          # only needed once
 cargo run -p skycode-cli -- ask "<your task>"
 ```
-
-**Port config:** edit `agents/models.yaml` → `port:` field (default 18080).
 
 ---
 
