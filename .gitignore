@@ -3,6 +3,7 @@
 /target-codex/
 /target-codex4xeonW/
 /target-phase6-codex/
+/target_phase*/
 **/target/
 **/*.rs.bk
 

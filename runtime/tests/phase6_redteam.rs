@@ -89,6 +89,10 @@ fn is_approved_write_site(path: &Path) -> bool {
         || s.contains("skycode-tools/src/tools/filesystem.rs")
         // CLI approve command: persists signing keys and token receipts to .skycode/
         || s.contains("cli/src/commands/approve.rs")
+        // API diffs endpoint: persists approval tokens to .skycode/tokens/
+        || s.contains("api/src/routes/diffs.rs")
+        // API key manager: persists .skycode/api.key on first run.
+        || s.contains("api/src/key.rs")
 }
 
 fn is_approved_command_site(path: &Path) -> bool {
@@ -114,7 +118,7 @@ fn is_approved_sql_mutate_site(path: &Path) -> bool {
         || s.contains("skycode-graph/src/graph/indexer.rs") // graph index incremental rebuild
         || s.contains("skycode-memory/src/memory/store.rs") // memory chunk eviction / re-rank
         || s.contains("cli/src/commands/profile.rs")        // user profile settings
-        || s.contains("cli/src/commands/scan.rs")           // stale entry cleanup
+        || s.contains("cli/src/commands/scan.rs") // stale entry cleanup
 }
 
 // ─── tests ───────────────────────────────────────────────────────────────────
@@ -140,12 +144,7 @@ fn phase6_redteam_no_extra_write_path() {
         for (line_no, line) in content.lines().enumerate() {
             for pat in &patterns {
                 if line.contains(pat) && !is_in_test_block(&content, line_no) {
-                    violations.push(format!(
-                        "{}:{}: `{}`",
-                        rel(&root, path),
-                        line_no + 1,
-                        pat
-                    ));
+                    violations.push(format!("{}:{}: `{}`", rel(&root, path), line_no + 1, pat));
                 }
             }
         }
@@ -179,12 +178,7 @@ fn phase6_redteam_no_unauthorized_remove_rename() {
         for (line_no, line) in content.lines().enumerate() {
             for pat in &patterns {
                 if line.contains(pat) && !is_in_test_block(&content, line_no) {
-                    violations.push(format!(
-                        "{}:{}: `{}`",
-                        rel(&root, path),
-                        line_no + 1,
-                        pat
-                    ));
+                    violations.push(format!("{}:{}: `{}`", rel(&root, path), line_no + 1, pat));
                 }
             }
         }

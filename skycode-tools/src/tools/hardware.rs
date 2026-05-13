@@ -127,7 +127,8 @@ fn parse_nvidia_xml(xml_text: &str) -> Option<Vec<GpuInfo>> {
                 match tag_name {
                     "gpu" if in_gpu => {
                         if !current_gpu_name.is_empty() {
-                            if let (Some(total), Some(free)) = (current_gpu_total_mb, current_gpu_free_mb)
+                            if let (Some(total), Some(free)) =
+                                (current_gpu_total_mb, current_gpu_free_mb)
                             {
                                 gpus.push(GpuInfo {
                                     index: current_gpu_index,

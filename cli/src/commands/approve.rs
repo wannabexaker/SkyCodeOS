@@ -39,9 +39,17 @@ pub fn approve_diff(diff_id: &str) -> Result<ApprovalToken, Box<dyn std::error::
 
     ensure_diff_exists(&conn, diff_id)?;
 
+    let project_id: String = conn.query_row(
+        "SELECT project_id FROM diff_proposals WHERE id = ?1",
+        params![diff_id],
+        |r| r.get(0),
+    )?;
+
     let key_pair = load_or_create_signing_key()?;
     let token = ApprovalToken::create_signed(
+        &project_id,
         diff_id.to_string(),
+        "coder-primary",
         "coder-primary",
         format!("nonce-{}", now_unix()?),
         &key_pair,

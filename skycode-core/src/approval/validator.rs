@@ -6,15 +6,14 @@ use thiserror::Error;
 
 use super::token::{ApprovalToken, TokenError};
 
-/// Clock-skew grace period: tokens are accepted up to this many seconds
-/// past their nominal expiry to tolerate NTP drift on a single machine.
-/// This does NOT extend tokens for any other purpose.
-const CLOCK_SKEW_TOLERANCE_SECS: i64 = 5;
+pub const CLOCK_SKEW_GRACE_SECONDS: i64 = 30;
 
 #[derive(Debug, Error)]
 pub enum ValidatorError {
     #[error("token expired")]
     Expired,
+    #[error("project binding mismatch")]
+    ProjectBindingMismatch,
     #[error("diff binding mismatch")]
     DiffBindingMismatch,
     #[error("agent id mismatch: expected {expected}, got {actual}")]
@@ -23,6 +22,8 @@ pub enum ValidatorError {
     InvalidSignature,
     #[error("replay attack detected")]
     ReplayDetected,
+    #[error("unknown key_id: {key_id}")]
+    UnknownKeyId { key_id: String },
     #[error("no signing key registered for agent '{agent_id}' — run `scos approve` first")]
     UnregisteredAgent { agent_id: String },
     #[error("database error: {0}")]
@@ -42,35 +43,51 @@ pub fn register_signing_key(
     public_key_hex: &str,
     registered_at: i64,
 ) -> Result<(), ValidatorError> {
+    register_signing_key_with_key_id(conn, agent_id, agent_id, public_key_hex, registered_at)
+}
+
+pub fn register_signing_key_with_key_id(
+    conn: &Connection,
+    agent_id: &str,
+    key_id: &str,
+    public_key_hex: &str,
+    registered_at: i64,
+) -> Result<(), ValidatorError> {
     conn.execute(
-        "INSERT OR REPLACE INTO signing_keys (agent_id, public_key_hex, registered_at)
-         VALUES (?1, ?2, ?3)",
-        params![agent_id, public_key_hex, registered_at],
+        "INSERT OR REPLACE INTO signing_keys (agent_id, key_id, public_key_hex, registered_at)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![agent_id, key_id, public_key_hex, registered_at],
     )?;
     Ok(())
 }
 
 /// Validate an ApprovalToken in 13 steps:
-/// 1. TTL check (with clock-skew tolerance)
+/// 1. TTL check (with clock-skew grace)
 /// 2. Diff-binding check
 /// 3. Agent-id check
-/// 4. Public-key lookup from trusted DB (signing_keys table)
+/// 4. Public-key lookup by key_id from trusted DB (signing_keys table)
 /// 5. Signature verification
 /// 6. Atomic single-use INSERT (replay defence)
 pub fn validate_token(
     conn: &Connection,
     token: &ApprovalToken,
+    expected_project_id: &str,
     expected_diff_id: &str,
     expected_agent_id: &str,
     task_id: &str,
 ) -> Result<(), ValidatorError> {
-    // Step 1 — TTL (CHECK 3 fix: CLOCK_SKEW_TOLERANCE_SECS grace period)
+    // Step 1: TTL with CLOCK_SKEW_GRACE_SECONDS tolerance.
     let now = now_unix()?;
-    if token.expires_at + CLOCK_SKEW_TOLERANCE_SECS <= now {
+    if now > token.expires_at + CLOCK_SKEW_GRACE_SECONDS {
         return Err(ValidatorError::Expired);
     }
 
-    // Step 2 — diff binding
+    // Step 2 — project binding
+    if token.project_id != expected_project_id {
+        return Err(ValidatorError::ProjectBindingMismatch);
+    }
+
+    // Step 2b — diff binding
     if token.diff_id != expected_diff_id {
         return Err(ValidatorError::DiffBindingMismatch);
     }
@@ -85,12 +102,15 @@ pub fn validate_token(
 
     // Step 4 — look up the trusted public key from the DB (CHECK 2 fix)
     let key_hex: Option<String> = conn
-        .prepare("SELECT public_key_hex FROM signing_keys WHERE agent_id = ?1")?
-        .query_row(params![expected_agent_id], |r| r.get(0))
+        .prepare(
+            "SELECT public_key_hex FROM signing_keys
+             WHERE key_id = ?1 AND agent_id = ?2",
+        )?
+        .query_row(params![&token.key_id, expected_agent_id], |r| r.get(0))
         .optional()?;
 
-    let key_hex = key_hex.ok_or_else(|| ValidatorError::UnregisteredAgent {
-        agent_id: expected_agent_id.to_string(),
+    let key_hex = key_hex.ok_or_else(|| ValidatorError::UnknownKeyId {
+        key_id: token.key_id.clone(),
     })?;
 
     let public_key = decode_hex(&key_hex).ok_or(ValidatorError::InvalidSignature)?;
@@ -109,8 +129,7 @@ pub fn validate_token(
          VALUES (?1, ?2, ?3, ?4)",
     )?;
 
-    let insert_result =
-        stmt.execute(params![token.id.to_string(), token.diff_id, task_id, now,]);
+    let insert_result = stmt.execute(params![token.id.to_string(), token.diff_id, task_id, now,]);
 
     match insert_result {
         Ok(_) => Ok(()),

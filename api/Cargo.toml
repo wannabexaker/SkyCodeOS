@@ -1,0 +1,25 @@
+[package]
+name = "skycode-api"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+skycode-inference = { path = "../skycode-inference" }
+skycode-core = { path = "../skycode-core" }
+skycode-tools = { path = "../skycode-tools" }
+skycode-contracts = { path = "../contracts" }
+axum = { version = "0.8", features = ["macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "time"] }
+tokio-stream = "0.1"
+tower-http = { version = "0.6", features = ["cors"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+uuid = { version = "1", features = ["v4"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
+getrandom = "0.2"
+futures-util = "0.3"
+rusqlite = { version = "0.31", features = ["bundled"] }
+ring = "0.17"
+hex = "0.4"

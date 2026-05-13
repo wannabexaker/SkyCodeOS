@@ -1,3 +1,79 @@
+# SkyCodeOS — Architecture
+
+## Why "Operating System"
+
+SkyCodeOS is not an application. It is the **foundational AI runtime** that
+other applications sit on top of — the same relationship an OS has with the
+programs it hosts.
+
+| OS concept | SkyCodeOS equivalent |
+|---|---|
+| Manages hardware resources | GPU/VRAM auto-detect, tensor split, layer offload |
+| Stable system-call interface | OpenAI-compatible API + MCP Protocol |
+| Process scheduler | Task queue + agent orchestrator |
+| Security model | ApprovalToken pipeline — no write without a signed token |
+| Always-on service | `scos serve` daemon; clients connect, disconnect freely |
+| Hardware abstraction | Same API surface on CPU-only and 4× GPU machines |
+
+Applications never know they are talking to a `.gguf` model on a local GPU.
+They see a standard OpenAI endpoint or an MCP server.
+
+---
+
+## Ecosystem Map
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Applications                              │
+│                                                                  │
+│   Cursor / IDE       SkaiRPG UI          Skycode Orchestrator    │
+│   (OpenAI SDK)       (API / MCP)         (multi-agent, WIP)      │
+└──────────┬───────────────┬───────────────────────┬──────────────┘
+           │               │                       │
+     OpenAI API       MCP Protocol            OpenAI API
+           │               │                       │
+           └───────────────┴───────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                  SkyCodeOS  (runs on user's local PC)            │
+│                                                                  │
+│   port 11434  OpenAI-compatible REST API                        │
+│   port 11435  MCP SSE server (LAN / Tailscale)                  │
+│   stdio       MCP stdio server (Claude Desktop, Cursor plugin)   │
+│                                                                  │
+│   ── internal layers (Phase 1–6) ──────────────────────────     │
+│   GGUF inference via llama.cpp                                  │
+│   Memory: FTS5 SQLite                                           │
+│   Tools: apply_diff, verify, search, rollback                   │
+│   ApprovalToken pipeline (ed25519, single-use, TTL 300 s)       │
+│   GPU auto-detect: nvidia-smi + Windows DXGI                    │
+│   Multi-GPU tensor split                                        │
+└─────────────────────────────────────────────────────────────────┘
+                           │
+             Tailscale / LAN  (single user, N machines)
+                           │
+┌─────────────────────────────────────────────────────────────────┐
+│                      Local Hardware                              │
+│   GPU / CPU   │   model.gguf   │   skycode.db (SQLite)          │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Deployment model:** One user, multiple machines, connected via Tailscale or
+LAN. SkyCodeOS runs on the machine with the GPU. All other machines (laptop,
+second workstation, phone via browser) connect to it over the private network.
+No cloud required. No data leaves the LAN.
+
+**SkaiRPG backend options** (user selects in settings):
+1. **Ollama** — plain local inference, no SkyCodeOS tooling
+2. **Skycode Orchestrator** — multi-agent, cloud or local
+3. **SkyCodeOS** — local GGUF + full tool pipeline + approval security
+
+All three expose the same OpenAI-compatible surface, so SkaiRPG uses one
+HTTP client for all three.
+
+---
+
 # Skycode V1 Layer Architecture
 
 ## Canonical Stack

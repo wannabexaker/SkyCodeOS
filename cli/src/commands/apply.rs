@@ -62,12 +62,21 @@ fn apply_diff_from_store_with_conn(
     let uuid = Uuid::parse_str(diff_id)?;
     let diff = DiffProposal {
         id: uuid,
+        project_id: row.project_id.clone(),
         diff_text: row.patch_unified,
         file_path: row.first_file,
         created_at: row.created_at,
     };
 
-    apply_diff(conn, &token, "coder-primary", &row.task_id, repo_path, &diff)?;
+    apply_diff(
+        conn,
+        &token,
+        "coder-primary",
+        &row.task_id,
+        repo_path,
+        &row.project_id,
+        &diff,
+    )?;
 
     remove_token(diff_id)?;
 
@@ -114,6 +123,7 @@ struct AppliedDiffMeta {
 
 struct StoredDiff {
     task_id: String,
+    project_id: String,
     patch_unified: String,
     first_file: String,
     created_at: i64,
@@ -168,7 +178,10 @@ fn run_post_apply_verify(
     if outcome.exit_code == 0 && !outcome.timed_out {
         let output_json = json!({
             "exit_code": 0,
+            "stdout": outcome.stdout_truncated,
+            "stderr": outcome.stderr_truncated,
             "elapsed_ms": outcome.elapsed_ms,
+            "timed_out": false,
         })
         .to_string();
         record_verify_event_best_effort(
@@ -182,13 +195,12 @@ fn run_post_apply_verify(
         return Ok(());
     }
 
-    let stderr_bytes = outcome.stderr_truncated.as_bytes();
-    let stderr_text = String::from_utf8_lossy(&stderr_bytes[..stderr_bytes.len().min(4096)]);
     let output_json = json!({
         "exit_code": outcome.exit_code,
-        "timed_out": outcome.timed_out,
+        "stdout": outcome.stdout_truncated,
+        "stderr": outcome.stderr_truncated,
         "elapsed_ms": outcome.elapsed_ms,
-        "stderr": stderr_text,
+        "timed_out": outcome.timed_out,
     })
     .to_string();
     record_verify_event_best_effort(
@@ -265,7 +277,7 @@ fn load_diff_row(
     diff_id: &str,
 ) -> Result<StoredDiff, Box<dyn std::error::Error>> {
     let mut stmt = conn.prepare(
-        "SELECT task_id, patch_unified, affected_files_json, created_at
+        "SELECT task_id, project_id, patch_unified, affected_files_json, created_at
          FROM diff_proposals WHERE id = ?1",
     )?;
 
@@ -274,19 +286,21 @@ fn load_diff_row(
             r.get::<_, String>(0)?,
             r.get::<_, String>(1)?,
             r.get::<_, String>(2)?,
-            r.get::<_, i64>(3)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, i64>(4)?,
         ))
     })?;
 
-    let files_opt: Option<Vec<String>> = serde_json::from_str(&row.2).unwrap_or(None);
+    let files_opt: Option<Vec<String>> = serde_json::from_str(&row.3).unwrap_or(None);
     let first_file = files_opt
         .and_then(|v| v.first().cloned())
         .unwrap_or_else(|| "README.md".to_string());
 
     Ok(StoredDiff {
         task_id: row.0,
-        patch_unified: row.1,
+        project_id: row.1,
+        patch_unified: row.2,
         first_file,
-        created_at: row.3,
+        created_at: row.4,
     })
 }

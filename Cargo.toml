@@ -9,6 +9,9 @@ members = [
     "skycode-orchestrator",
     "runtime",
     "cli",
+    "api",
+    "mcp",
+    "contracts",
     "boundary-tests",
 ]
 resolver = "2"

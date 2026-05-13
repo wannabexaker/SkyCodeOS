@@ -8,8 +8,10 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApprovalToken {
     pub id: Uuid,
+    pub project_id: String,
     pub diff_id: String,
     pub agent_id: String,
+    pub key_id: String,
     pub created_at: i64,
     pub expires_at: i64,
     pub signature: String,
@@ -18,9 +20,11 @@ pub struct ApprovalToken {
 
 #[derive(Debug, Serialize)]
 struct ApprovalTokenPayload<'a> {
+    project_id: &'a str,
     id: &'a Uuid,
     diff_id: &'a str,
     agent_id: &'a str,
+    key_id: &'a str,
     created_at: i64,
     expires_at: i64,
     nonce: &'a str,
@@ -38,8 +42,10 @@ pub enum TokenError {
 
 impl ApprovalToken {
     pub fn create_signed(
+        project_id: impl Into<String>,
         diff_id: impl Into<String>,
         agent_id: impl Into<String>,
+        key_id: impl Into<String>,
         nonce: impl Into<String>,
         key_pair: &Ed25519KeyPair,
     ) -> Result<Self, TokenError> {
@@ -47,14 +53,18 @@ impl ApprovalToken {
         let expires_at = created_at + 300;
 
         let id = Uuid::new_v4();
+        let project_id = project_id.into();
         let diff_id = diff_id.into();
         let agent_id = agent_id.into();
+        let key_id = key_id.into();
         let nonce = nonce.into();
 
         let payload = ApprovalTokenPayload {
+            project_id: &project_id,
             id: &id,
             diff_id: &diff_id,
             agent_id: &agent_id,
+            key_id: &key_id,
             created_at,
             expires_at,
             nonce: &nonce,
@@ -66,8 +76,10 @@ impl ApprovalToken {
 
         Ok(Self {
             id,
+            project_id,
             diff_id,
             agent_id,
+            key_id,
             created_at,
             expires_at,
             signature: signature_hex,
@@ -77,9 +89,11 @@ impl ApprovalToken {
 
     pub fn canonical_payload(&self) -> Result<Vec<u8>, TokenError> {
         let payload = ApprovalTokenPayload {
+            project_id: &self.project_id,
             id: &self.id,
             diff_id: &self.diff_id,
             agent_id: &self.agent_id,
+            key_id: &self.key_id,
             created_at: self.created_at,
             expires_at: self.expires_at,
             nonce: &self.nonce,

@@ -42,6 +42,10 @@ enum Commands {
         #[command(subcommand)]
         command: commands::profile::ProfileCommands,
     },
+    /// Start the OpenAI-compatible API server (LAN accessible).
+    Serve(commands::serve::ServeArgs),
+    /// Start the MCP server (stdio for Claude Desktop, --sse for LAN).
+    Mcp(commands::mcp::McpArgs),
 }
 
 #[derive(Subcommand)]
@@ -65,6 +69,8 @@ fn main() {
         },
         Commands::Model { command } => commands::model::run_model_command(command),
         Commands::Profile { command } => commands::profile::run_profile_command(command),
+        Commands::Serve(args) => commands::serve::run(args),
+        Commands::Mcp(args) => commands::mcp::run(args),
     };
 
     if let Err(err) = result {

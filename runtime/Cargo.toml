@@ -2,6 +2,7 @@
 name = "skycode-runtime"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 
 [dependencies]
 skycode-core = { path = "../skycode-core" }
@@ -13,6 +14,9 @@ skycode-inference = { path = "../skycode-inference" }
 skycode-orchestrator = { path = "../skycode-orchestrator" }
 
 [dev-dependencies]
+skycode-api = { path = "../api" }
+skycode-mcp = { path = "../mcp" }
+skycode-contracts = { path = "../contracts" }
 rusqlite = { version = "0.31", features = ["bundled"] }
 ring = "0.17"
 serde_json = "1"

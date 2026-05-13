@@ -52,14 +52,16 @@ fn phase1_gate_50_edit_cycles_zero_unapproved_writes() -> Result<(), Box<dyn std
         let after_middle = format!("cycle-{cycle}-approved");
         let after = format!("anchor-top\n{}\nanchor-bottom\n", after_middle);
 
-        let mut diff = create_diff(relative_file, &before, &after)?;
+        let mut diff = create_diff("default", relative_file, &before, &after)?;
         diff.diff_text = format!(
             "diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1,3 +1,3 @@\n anchor-top\n-baseline-phase1\n+{after_middle}\n anchor-bottom\n",
             path = relative_file.display(),
             after_middle = after_middle,
         );
         let token = ApprovalToken::create_signed(
+            "default",
             diff.id.to_string(),
+            agent_id,
             agent_id,
             format!("nonce-{cycle}"),
             &key_pair,
@@ -70,6 +72,7 @@ fn phase1_gate_50_edit_cycles_zero_unapproved_writes() -> Result<(), Box<dyn std
         validate_token(
             &precheck_conn,
             &token,
+            "default",
             &diff.id.to_string(),
             agent_id,
             &format!("task-precheck-{cycle}"),
@@ -81,6 +84,7 @@ fn phase1_gate_50_edit_cycles_zero_unapproved_writes() -> Result<(), Box<dyn std
             agent_id,
             &format!("task-apply-{cycle}"),
             &repo_root,
+            "default",
             &diff,
         )?;
 
@@ -170,6 +174,7 @@ fn run_migrations_or_bootstrap(conn: &Connection) -> Result<(), Box<dyn std::err
 
         CREATE TABLE IF NOT EXISTS signing_keys (
             agent_id       TEXT PRIMARY KEY,
+            key_id         TEXT,
             public_key_hex TEXT NOT NULL,
             registered_at  INTEGER NOT NULL
         ) STRICT;",

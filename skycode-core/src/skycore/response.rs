@@ -21,6 +21,11 @@ pub struct SkyCoreArtifact {
     /// itself (more reliable than asking the model to produce a unified diff).
     #[serde(default)]
     pub new_content: Option<String>,
+    /// Liberal bridge for model responses that emit file content under a
+    /// generic `content` key. The orchestrator normalizes this into
+    /// `new_content` for create/rewrite artifacts.
+    #[serde(default)]
+    pub content: Option<String>,
     #[serde(default)]
     pub affected_files: Option<Vec<String>>,
 }
