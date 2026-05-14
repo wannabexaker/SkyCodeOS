@@ -1,13 +1,13 @@
-use std::fs::{self, OpenOptions};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, OptionalExtension};
+use serde_json::Value;
 use thiserror::Error;
 
 use skycode_agent::agent::identity::{load_coder_primary_identity, IdentityError};
 use skycode_agent::agent::intent::{build_intent, AgentIntent};
+use skycode_agent::agent::profile::{load_profile, AgentProfile};
 use skycode_core::skycore::{
     strip_provider_fields, ModelPolicy, SkyCoreArtifact, SkyCoreConstraints, SkyCoreRequest,
     SkyCoreResponse,
@@ -20,6 +20,7 @@ use skycode_inference::inference::{
 use skycode_memory::memory::{search_memories, RetrievalError};
 use skycode_tools::tools::diff::{create_diff, DiffError, DiffProposal};
 
+use crate::orchestrator::policy::{enforce_permission_set, PolicyError};
 use crate::orchestrator::router::{
     classify_task, map_to_model, record_model_selection, RouterError, TaskClass,
 };
@@ -63,6 +64,8 @@ pub enum OrchestratorError {
     Retrieval(#[from] RetrievalError),
     #[error("router error: {0}")]
     Router(#[from] RouterError),
+    #[error("policy error: {0}")]
+    Policy(#[from] PolicyError),
     #[error("missing diff artifact in model response")]
     MissingDiffArtifact,
     #[error("model runtime must be local_gguf, got openai_compatible")]
@@ -88,11 +91,26 @@ pub fn run_task_loop(
     // 2) build intent
     let intent = build_intent(&identity, &input.goal);
 
-    // 3) resolve context refs from memory + graph
-    let context_refs = resolve_context_refs(conn, &input.project_id, &identity.id, &input.goal)?;
-
     // Resolve active profile: explicit CLI arg > saved agent_state > default.
     let active_profile = resolve_active_profile(conn, input);
+    let mut profile = load_profile(&agents_root, &active_profile).unwrap_or_else(|e| {
+        eprintln!("warning: could not load profile '{active_profile}': {e} - using defaults");
+        AgentProfile {
+            name: active_profile.clone(),
+            ..Default::default()
+        }
+    });
+    apply_profile_state_overrides(conn, input, &mut profile)?;
+    enforce_permission_set(&profile.permissions, "file_write")?;
+
+    // 3) resolve context refs from memory + graph
+    let context_refs = resolve_context_refs(
+        conn,
+        &input.project_id,
+        &identity.id,
+        &input.goal,
+        profile.context_chunks,
+    )?;
 
     // 4) build SkyCore request
     let request = build_skycore_request(
@@ -100,11 +118,12 @@ pub fn run_task_loop(
         &identity.id,
         &intent,
         context_refs,
-        &active_profile,
+        &profile,
     );
 
     // 5) invoke model via registry loader + parse response
-    let response = invoke_model_and_parse_response(conn, &repo_root, &request, task_class)?;
+    let response =
+        invoke_model_and_parse_response(conn, &repo_root, &request, task_class, &profile)?;
 
     // 6) store diff proposal + return to CLI
     let artifact = select_diff_artifact(&response)?;
@@ -265,13 +284,52 @@ fn resolve_active_profile(conn: &Connection, input: &TaskLoopInput) -> String {
     saved.unwrap_or_else(|| "precise".to_string())
 }
 
+fn apply_profile_state_overrides(
+    conn: &Connection,
+    input: &TaskLoopInput,
+    profile: &mut AgentProfile,
+) -> Result<(), OrchestratorError> {
+    let state_json: Option<String> = conn
+        .query_row(
+            "SELECT state_json FROM agent_state
+              WHERE agent_id = 'coder-primary' AND project_id = ?1",
+            params![input.project_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+
+    let Some(state_json) = state_json else {
+        return Ok(());
+    };
+    let value = serde_json::from_str::<Value>(&state_json)?;
+
+    if let Some(temp) = value.get("temperature").and_then(Value::as_f64) {
+        if temp.is_finite() {
+            profile.temperature = temp as f32;
+        }
+    }
+    if let Some(repeat_penalty) = value.get("repeat_penalty").and_then(Value::as_f64) {
+        if repeat_penalty.is_finite() {
+            profile.repeat_penalty = repeat_penalty as f32;
+        }
+    }
+    if let Some(model) = value.get("model").and_then(Value::as_str) {
+        if !model.trim().is_empty() {
+            profile.model = model.to_string();
+        }
+    }
+
+    Ok(())
+}
+
 fn resolve_context_refs(
     conn: &Connection,
     project_id: &str,
     agent_id: &str,
     goal: &str,
+    context_chunks: usize,
 ) -> Result<Vec<String>, OrchestratorError> {
-    let memories = search_memories(conn, goal, project_id, agent_id, "project", 5)?;
+    let memories = search_memories(conn, goal, project_id, agent_id, "project", context_chunks)?;
 
     let mut refs = Vec::new();
     for m in memories {
@@ -285,6 +343,7 @@ fn resolve_context_refs(
         }
     }
 
+    refs.truncate(context_chunks);
     Ok(refs)
 }
 
@@ -293,8 +352,13 @@ fn build_skycore_request(
     agent_id: &str,
     intent: &AgentIntent,
     context_refs: Vec<String>,
-    intent_profile: &str,
+    profile: &AgentProfile,
 ) -> SkyCoreRequest {
+    let max_output_tokens = match i32::try_from(profile.max_tokens) {
+        Ok(value) => value,
+        Err(_) => i32::MAX,
+    };
+
     SkyCoreRequest {
         skycore_version: "0.1".to_string(),
         task_id: task_id.to_string(),
@@ -303,13 +367,13 @@ fn build_skycore_request(
         context_refs,
         tools_allowed: intent.requested_tools.clone(),
         model_policy: ModelPolicy {
-            preferred: "local-coder".to_string(),
+            preferred: profile.model.clone(),
             fallback: "local-fallback".to_string(),
-            profile: intent_profile.to_string(),
+            profile: profile.name.clone(),
         },
         output_contract: intent.output_contract.clone(),
         constraints: SkyCoreConstraints {
-            max_output_tokens: 4096,
+            max_output_tokens,
             stream: Some(true),
             stop: Some(Vec::new()),
         },
@@ -321,12 +385,29 @@ fn invoke_model_and_parse_response(
     repo_root: &Path,
     request: &SkyCoreRequest,
     task_class: TaskClass,
+    profile: &AgentProfile,
 ) -> Result<SkyCoreResponse, OrchestratorError> {
+    // Mock intercept (used only in integration tests).
+    // If .skycode/mock_model_response.json exists in the repo root, use its
+    // contents as the model response and skip launching llama.cpp.
+    let mock_path = repo_root.join(".skycode").join("mock_model_response.json");
+    if mock_path.exists() {
+        let json_text = std::fs::read_to_string(&mock_path).map_err(|e| {
+            OrchestratorError::ModelOutputInvalid(format!("mock response read error: {e}"))
+        })?;
+        let raw: serde_json::Value = serde_json::from_str(&json_text)?;
+        let response = strip_provider_fields(raw)?;
+        return Ok(response);
+    }
+
     let models_path = repo_root.join("agents").join("models.yaml");
     let mut watcher = ModelRegistryWatcher::load(models_path)?;
     let _ = watcher.reload_if_changed()?;
 
-    let model = map_to_model(task_class, watcher.registry())?;
+    let model = match watcher.model(&profile.model) {
+        Ok(model) => model,
+        Err(_) => map_to_model(task_class, watcher.registry())?.clone(),
+    };
     if let Err(err) = record_model_selection(
         conn,
         &request.task_id,
@@ -352,8 +433,9 @@ fn invoke_model_and_parse_response(
         ),
         n_cpu_moe: model.n_cpu_moe,
         prompt: None,
-        temp: 0.1,
-        repeat_penalty: 1.1,
+        temp: profile.temperature,
+        repeat_penalty: profile.repeat_penalty,
+        max_tokens: profile.max_tokens as usize,
         no_mmap: model.no_mmap,
         mlock: model.mlock,
         port: model.port,
@@ -371,6 +453,7 @@ fn invoke_model_and_parse_response(
 
     let handle = launch_server(&launch)?;
     let line = handle.call_model(&prompt)?;
+    #[cfg(test)]
     append_raw_model_response(repo_root, &request.goal, &line);
     let json_text = extract_json(&line);
 
@@ -441,11 +524,14 @@ fn extract_json(raw: &str) -> &str {
     s.strip_suffix("```").unwrap_or(s).trim()
 }
 
+#[cfg(test)]
 fn append_raw_model_response(repo_root: &Path, goal: &str, raw_response: &str) {
+    use std::io::Write;
+
     let _ = (|| -> std::io::Result<()> {
         let debug_dir = repo_root.join(".skycode").join("debug");
-        fs::create_dir_all(&debug_dir)?;
-        let mut file = OpenOptions::new()
+        std::fs::create_dir_all(&debug_dir)?;
+        let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(debug_dir.join("last_model_response.txt"))?;
@@ -457,6 +543,7 @@ fn append_raw_model_response(repo_root: &Path, goal: &str, raw_response: &str) {
     })();
 }
 
+#[cfg(test)]
 fn iso8601_utc_now() -> String {
     let duration = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -472,6 +559,7 @@ fn iso8601_utc_now() -> String {
     format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
 }
 
+#[cfg(test)]
 fn civil_from_days(days_since_unix_epoch: i64) -> (i32, u32, u32) {
     let z = days_since_unix_epoch + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;

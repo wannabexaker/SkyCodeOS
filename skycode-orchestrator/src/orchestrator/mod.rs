@@ -2,6 +2,6 @@ pub mod policy;
 pub mod router;
 pub mod task_loop;
 
-pub use policy::{enforce_doctrine, write_decision, PolicyError};
+pub use policy::{enforce_doctrine, enforce_permission_set, write_decision, PolicyError};
 pub use router::{classify_task, map_to_model, record_model_selection, RouterError, TaskClass};
 pub use task_loop::{run_task_loop, OrchestratorError, TaskLoopInput, TaskLoopOutput};

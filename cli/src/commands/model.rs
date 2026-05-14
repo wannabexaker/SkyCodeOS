@@ -196,6 +196,7 @@ fn to_launch_options(
         prompt,
         temp: 0.1,
         repeat_penalty: 1.1,
+        max_tokens: 1024,
         no_mmap: config.no_mmap,
         mlock: config.mlock,
         port: config.port,

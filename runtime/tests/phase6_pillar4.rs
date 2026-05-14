@@ -93,6 +93,7 @@ fn phase6_llama_server_flag_compat() -> Result<(), Box<dyn std::error::Error>> {
         prompt: None,
         temp: 0.1,
         repeat_penalty: 1.1,
+        max_tokens: 1024,
         no_mmap: false,
         mlock: false,
         kv_offload: false,
