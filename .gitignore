@@ -40,3 +40,8 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local-only scratch directories and ad-hoc files
+/tmp_move_test/
+/παρουσιαση.md
+/presentation*.md
