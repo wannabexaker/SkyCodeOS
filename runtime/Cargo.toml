@@ -27,3 +27,7 @@ walkdir = "2"
 [[test]]
 name = "anti_regression_e2e"
 path = "tests/anti_regression_e2e.rs"
+
+[[test]]
+name = "phase10_grammar"
+path = "tests/phase10_grammar.rs"

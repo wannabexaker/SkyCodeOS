@@ -46,6 +46,7 @@ pub struct ModelHandle {
     temperature: f32,
     repeat_penalty: f32,
     max_tokens: usize,
+    grammar: Option<String>,
     stopped: bool,
     pub mlock_verified: bool,
     pub mlock_warning: Option<String>,
@@ -137,6 +138,7 @@ pub fn launch_server(options: &ModelLaunchOptions) -> Result<ModelHandle, Infere
         temperature: options.temp,
         repeat_penalty: options.repeat_penalty,
         max_tokens: options.max_tokens,
+        grammar: None,
         stopped: false,
         mlock_verified,
         mlock_warning,
@@ -284,7 +286,7 @@ pub fn call_model(prompt: &str, port: u16) -> Result<String, InferenceError> {
         .timeout(REQUEST_TIMEOUT)
         .build()?;
     let base_url = format!("http://{}:{}", SERVER_HOST, port);
-    call_model_at(&client, &base_url, prompt, 0.1, 1024, 1.1)
+    call_model_at(&client, &base_url, prompt, 0.1, 1024, 1.1, None)
 }
 
 fn spawn_line_reader<R>(stream: R) -> Receiver<String>
@@ -400,7 +402,16 @@ fn call_model_at(
     temperature: f32,
     max_tokens: usize,
     repeat_penalty: f32,
+    grammar: Option<String>,
 ) -> Result<String, InferenceError> {
+    let response_format = if grammar.is_none() {
+        Some(ResponseFormat {
+            format_type: "json_object",
+        })
+    } else {
+        None
+    };
+
     let body = ChatCompletionRequest {
         model: "local",
         messages: vec![
@@ -416,9 +427,8 @@ fn call_model_at(
         temperature,
         max_tokens,
         repeat_penalty,
-        response_format: ResponseFormat {
-            format_type: "json_object",
-        },
+        response_format,
+        grammar,
     };
 
     let response = client
@@ -464,7 +474,12 @@ impl ModelHandle {
             self.temperature,
             self.max_tokens,
             self.repeat_penalty,
+            self.grammar.clone(),
         )
+    }
+
+    pub fn set_grammar(&mut self, grammar: Option<String>) {
+        self.grammar = grammar;
     }
 
     /// llama-server uses HTTP chat completions; prompt writes are unsupported.
@@ -520,7 +535,10 @@ struct ChatCompletionRequest<'a> {
     temperature: f32,
     max_tokens: usize,
     repeat_penalty: f32,
-    response_format: ResponseFormat,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<ResponseFormat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    grammar: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

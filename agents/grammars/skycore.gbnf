@@ -1,0 +1,36 @@
+# SkyCore JSON grammar for llama.cpp grammar-constrained sampling.
+# Forces the model to produce a valid SkyCoreResponse on every completion.
+root ::= skycore-response
+skycore-response ::= "{" ws
+    "\"skycore_version\":" ws "\"0.1\"" ws "," ws
+    "\"task_id\":" ws string ws "," ws
+    "\"status\":" ws status ws "," ws
+    "\"summary\":" ws string ws "," ws
+    "\"artifacts\":" ws "[" ws artifacts? ws "]" ws "," ws
+    "\"tool_calls_requested\":" ws "[" ws "]" ws "," ws
+    "\"requires_approval\":" ws boolean ws "," ws
+    "\"error\":" ws null-or-string
+    ws "}"
+status ::= "\"ok\"" | "\"partial\"" | "\"error\""
+artifacts ::= artifact ( ws "," ws artifact )*
+artifact ::= diff-artifact | rewrite-artifact
+diff-artifact ::= "{" ws
+    "\"kind\":" ws "\"diff\"" ws "," ws
+    "\"id\":" ws string ws "," ws
+    "\"patch_unified\":" ws string ws "," ws
+    "\"affected_files\":" ws string-array
+    ws "}"
+rewrite-artifact ::= "{" ws
+    "\"kind\":" ws rewrite-kind ws "," ws
+    "\"id\":" ws string ws "," ws
+    "\"new_content\":" ws string ws "," ws
+    "\"affected_files\":" ws string-array
+    ws "}"
+rewrite-kind ::= "\"rewrite\"" | "\"file\"" | "\"create\""
+string-array ::= "[" ws ( string ( ws "," ws string )* )? ws "]"
+boolean ::= "true" | "false"
+null-or-string ::= "null" | string
+string ::= "\"" ( [^"\\] | "\\" escape )* "\""
+escape ::= ["\\/bfnrt] | "u" hex hex hex hex
+hex ::= [0-9a-fA-F]
+ws ::= [ \t\n]*
