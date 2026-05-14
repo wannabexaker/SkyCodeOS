@@ -27,6 +27,7 @@ pub struct ModelLaunchOptions {
     pub prompt: Option<String>,
     pub temp: f32,
     pub repeat_penalty: f32,
+    pub max_tokens: usize,
     pub no_mmap: bool,
     pub mlock: bool,
     pub kv_offload: bool,
@@ -42,6 +43,9 @@ pub struct ModelHandle {
     stdout_lines: Receiver<String>,
     client: reqwest::blocking::Client,
     base_url: String,
+    temperature: f32,
+    repeat_penalty: f32,
+    max_tokens: usize,
     stopped: bool,
     pub mlock_verified: bool,
     pub mlock_warning: Option<String>,
@@ -130,6 +134,9 @@ pub fn launch_server(options: &ModelLaunchOptions) -> Result<ModelHandle, Infere
         stdout_lines,
         client,
         base_url,
+        temperature: options.temp,
+        repeat_penalty: options.repeat_penalty,
+        max_tokens: options.max_tokens,
         stopped: false,
         mlock_verified,
         mlock_warning,
@@ -277,7 +284,7 @@ pub fn call_model(prompt: &str, port: u16) -> Result<String, InferenceError> {
         .timeout(REQUEST_TIMEOUT)
         .build()?;
     let base_url = format!("http://{}:{}", SERVER_HOST, port);
-    call_model_at(&client, &base_url, prompt)
+    call_model_at(&client, &base_url, prompt, 0.1, 1024, 1.1)
 }
 
 fn spawn_line_reader<R>(stream: R) -> Receiver<String>
@@ -390,6 +397,9 @@ fn call_model_at(
     client: &reqwest::blocking::Client,
     base_url: &str,
     prompt: &str,
+    temperature: f32,
+    max_tokens: usize,
+    repeat_penalty: f32,
 ) -> Result<String, InferenceError> {
     let body = ChatCompletionRequest {
         model: "local",
@@ -403,8 +413,9 @@ fn call_model_at(
                 content: prompt,
             },
         ],
-        temperature: 0.1,
-        max_tokens: 1024,
+        temperature,
+        max_tokens,
+        repeat_penalty,
         response_format: ResponseFormat {
             format_type: "json_object",
         },
@@ -446,7 +457,14 @@ fn terminate_child(process: &mut Child) {
 
 impl ModelHandle {
     pub fn call_model(&self, prompt: &str) -> Result<String, InferenceError> {
-        call_model_at(&self.client, &self.base_url, prompt)
+        call_model_at(
+            &self.client,
+            &self.base_url,
+            prompt,
+            self.temperature,
+            self.max_tokens,
+            self.repeat_penalty,
+        )
     }
 
     /// llama-server uses HTTP chat completions; prompt writes are unsupported.
@@ -501,6 +519,7 @@ struct ChatCompletionRequest<'a> {
     messages: Vec<ChatMessageRequest<'a>>,
     temperature: f32,
     max_tokens: usize,
+    repeat_penalty: f32,
     response_format: ResponseFormat,
 }
 

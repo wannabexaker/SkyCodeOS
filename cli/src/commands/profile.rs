@@ -17,6 +17,8 @@ pub enum ProfileCommands {
     Use(ProfileUseArgs),
     /// Show the current active profile.
     Show,
+    /// List all available profiles from agents/profiles.yaml.
+    List,
     /// Run one task and record timing to tuning_runs.
     Bench(ProfileBenchArgs),
     /// Compare two tuning_run rows.
@@ -39,6 +41,18 @@ pub struct ProfileUseArgs {
     /// Set the verify timeout in seconds (1–300, default 60).
     #[arg(long)]
     pub verify_timeout: Option<u64>,
+
+    /// Override temperature for this session (0.0-2.0).
+    #[arg(long)]
+    pub temperature: Option<f32>,
+
+    /// Override repeat_penalty for this session (0.0-2.0).
+    #[arg(long)]
+    pub repeat_penalty: Option<f32>,
+
+    /// Override which model to use by name.
+    #[arg(long)]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -98,6 +112,7 @@ pub fn run_profile_command(cmd: &ProfileCommands) -> Result<(), Box<dyn std::err
     match cmd {
         ProfileCommands::Use(args) => run_profile_use(args),
         ProfileCommands::Show => run_profile_show(),
+        ProfileCommands::List => run_profile_list(),
         ProfileCommands::Bench(args) => run_profile_bench(args),
         ProfileCommands::Compare(args) => run_profile_compare(args),
         ProfileCommands::Tune(args) => run_profile_tune(args),
@@ -108,10 +123,19 @@ pub fn run_profile_command(cmd: &ProfileCommands) -> Result<(), Box<dyn std::err
 fn run_profile_use(args: &ProfileUseArgs) -> Result<(), Box<dyn std::error::Error>> {
     if !is_valid_profile(&args.profile) {
         return Err(format!(
-            "invalid profile '{}'; expected precise, fast, creative, or deep",
+            "invalid profile '{}'; expected a profile from agents/profiles.yaml",
             args.profile
         )
         .into());
+    }
+    validate_reasoning_override("temperature", args.temperature)?;
+    validate_reasoning_override("repeat_penalty", args.repeat_penalty)?;
+    if args
+        .model
+        .as_deref()
+        .is_some_and(|model| model.trim().is_empty())
+    {
+        return Err("model override cannot be empty".into());
     }
 
     let conn = open_db_with_migrations()?;
@@ -129,6 +153,7 @@ fn run_profile_use(args: &ProfileUseArgs) -> Result<(), Box<dyn std::error::Erro
     stmt.execute(params![args.profile])?;
 
     println!("Profile set to '{}'.", args.profile);
+    save_profile_overrides(&conn, args)?;
 
     if let Some(cmd) = &args.test_command {
         let changed = conn.execute(
@@ -178,6 +203,59 @@ fn run_profile_use(args: &ProfileUseArgs) -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
+fn save_profile_overrides(
+    conn: &Connection,
+    args: &ProfileUseArgs,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(temperature) = args.temperature {
+        conn.execute(
+            "UPDATE agent_state
+             SET state_json = json_set(COALESCE(state_json, '{}'), '$.temperature', ?1),
+                 updated_at = unixepoch()
+             WHERE agent_id = 'coder-primary' AND project_id = 'default'",
+            params![f64::from(temperature)],
+        )?;
+        println!("temperature override set to: {:.2}", temperature);
+    }
+
+    if let Some(repeat_penalty) = args.repeat_penalty {
+        conn.execute(
+            "UPDATE agent_state
+             SET state_json = json_set(COALESCE(state_json, '{}'), '$.repeat_penalty', ?1),
+                 updated_at = unixepoch()
+             WHERE agent_id = 'coder-primary' AND project_id = 'default'",
+            params![f64::from(repeat_penalty)],
+        )?;
+        println!("repeat_penalty override set to: {:.2}", repeat_penalty);
+    }
+
+    if let Some(model) = &args.model {
+        conn.execute(
+            "UPDATE agent_state
+             SET state_json = json_set(COALESCE(state_json, '{}'), '$.model', ?1),
+                 updated_at = unixepoch()
+             WHERE agent_id = 'coder-primary' AND project_id = 'default'",
+            params![model],
+        )?;
+        println!("model override set to: {}", model);
+    }
+
+    Ok(())
+}
+
+fn validate_reasoning_override(
+    field: &str,
+    value: Option<f32>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(value) = value {
+        if !(0.0..=2.0).contains(&value) {
+            return Err(format!("{field} must be between 0.0 and 2.0").into());
+        }
+    }
+
+    Ok(())
+}
+
 fn run_profile_show() -> Result<(), Box<dyn std::error::Error>> {
     let conn = open_db_with_migrations()?;
     let state_json: Option<String> = conn
@@ -197,6 +275,54 @@ fn run_profile_show() -> Result<(), Box<dyn std::error::Error>> {
     match profile {
         Some(profile) => println!("{profile}"),
         None => println!("precise (default)"),
+    }
+
+    Ok(())
+}
+
+fn run_profile_list() -> Result<(), Box<dyn std::error::Error>> {
+    use skycode_orchestrator::agent::profile::load_profile;
+
+    let agents_root = std::env::current_dir()?.join("agents");
+    let path = agents_root.join("profiles.yaml");
+
+    if !path.exists() {
+        println!("No profiles.yaml found. Using built-in defaults:");
+        println!("  precise (default)");
+        return Ok(());
+    }
+
+    let content = std::fs::read_to_string(&path)?;
+    let raw: Value = serde_yaml::from_str(&content)?;
+    let mut names = raw["profiles"]
+        .as_object()
+        .map(|m| m.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    names.sort();
+
+    let conn_result = open_db_with_migrations();
+    let active = conn_result
+        .ok()
+        .and_then(|c| load_saved_profile(&c).ok().flatten())
+        .unwrap_or_else(|| "precise".to_string());
+
+    println!(
+        "{:<12} {:<16} {:<8} {:<14} {:<12} PERMISSIONS",
+        "NAME", "MODEL", "TEMP", "REPEAT_PEN", "MAX_TOKENS"
+    );
+    for name in &names {
+        let profile = load_profile(&agents_root, name).unwrap_or_default();
+        let marker = if profile.name == active { " <-" } else { "" };
+        println!(
+            "{:<12} {:<16} {:<8.2} {:<14.2} {:<12} {}{}",
+            profile.name,
+            profile.model,
+            profile.temperature,
+            profile.repeat_penalty,
+            profile.max_tokens,
+            format!("{:?}", profile.permissions).to_lowercase(),
+            marker
+        );
     }
 
     Ok(())
@@ -365,7 +491,7 @@ fn run_tuning_task(
         Some(profile) => {
             if !is_valid_profile(profile) {
                 return Err(format!(
-                    "invalid profile '{profile}'; expected precise, fast, creative, or deep"
+                    "invalid profile '{profile}'; expected a profile from agents/profiles.yaml"
                 )
                 .into());
             }
@@ -576,7 +702,33 @@ fn open_db_with_migrations() -> Result<Connection, Box<dyn std::error::Error>> {
 }
 
 fn is_valid_profile(profile: &str) -> bool {
-    matches!(profile, "precise" | "fast" | "creative" | "deep")
+    if matches!(
+        profile,
+        "precise" | "fast" | "creative" | "deep" | "readonly" | "sandbox"
+    ) {
+        return true;
+    }
+
+    available_profile_names()
+        .map(|names| names.iter().any(|name| name == profile))
+        .unwrap_or(false)
+}
+
+fn available_profile_names() -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let path = std::env::current_dir()?
+        .join("agents")
+        .join("profiles.yaml");
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let content = std::fs::read_to_string(path)?;
+    let raw: Value = serde_yaml::from_str(&content)?;
+    let names = raw["profiles"]
+        .as_object()
+        .map(|m| m.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    Ok(names)
 }
 
 fn task_class_name(class: TaskClass) -> &'static str {

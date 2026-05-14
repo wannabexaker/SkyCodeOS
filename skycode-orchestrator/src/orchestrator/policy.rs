@@ -2,6 +2,7 @@ use rusqlite::Connection;
 use thiserror::Error;
 
 use skycode_agent::agent::intent::AgentIntent;
+use skycode_agent::agent::profile::PermissionSet;
 use skycode_memory::memory::store::{insert_decision, Decision, MemoryError};
 
 #[derive(Debug, Error)]
@@ -25,6 +26,27 @@ pub fn enforce_doctrine(intent: &AgentIntent, tool: &str) -> Result<(), PolicyEr
 
     if matches!(tool, "file_write" | "file_delete" | "patch_apply") {
         return Err(PolicyError::ApprovalRequired(tool.to_string()));
+    }
+
+    Ok(())
+}
+
+pub fn enforce_permission_set(
+    permission_set: &PermissionSet,
+    tool: &str,
+) -> Result<(), PolicyError> {
+    match permission_set {
+        PermissionSet::Readonly => {
+            if matches!(tool, "file_write" | "file_delete" | "patch_apply") {
+                return Err(PolicyError::ForbiddenTool(format!(
+                    "{tool} is forbidden in readonly profile"
+                )));
+            }
+        }
+        PermissionSet::Sandbox => {
+            eprintln!("warning: sandbox profile - writes are not yet sandboxed");
+        }
+        PermissionSet::Default => {}
     }
 
     Ok(())
