@@ -1,13 +1,13 @@
-# start-skycode.ps1 — Minimal launcher for SkyCodeOS.
+# start-skycode.ps1 - Minimal launcher for SkyCodeOS.
 #
 # Usage:
 #   .\start-skycode.ps1                  # start OpenAI-compatible API server on 11434
 #   .\start-skycode.ps1 -Ask "<task>"    # one-shot interactive ask
-#   .\start-skycode.ps1 -Mcp             # start MCP stdio server (for Claude Desktop / Cursor)
-#   .\start-skycode.ps1 -Mcp -Sse        # start MCP SSE server on 11435 (for LAN clients)
+#   .\start-skycode.ps1 -Mcp             # start MCP stdio server (Claude Desktop / Cursor)
+#   .\start-skycode.ps1 -Mcp -Sse        # start MCP SSE server on 11435 (LAN clients)
 #   .\start-skycode.ps1 -Port 9000       # API on a custom port
 #
-# Verifies prerequisites before starting, prints active profile + endpoint URLs.
+# Verifies prerequisites before starting. Prints active profile and endpoint URLs.
 
 param(
     [string]$Ask,
@@ -22,7 +22,7 @@ $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 Set-Location $root
 
-# 2. Locate the scos binary — prefer local debug, fall back to ~/.cargo/bin
+# 2. Locate the scos binary - prefer local debug, fall back to ~/.cargo/bin
 $scos = Join-Path $root "target\debug\scos.exe"
 if (-not (Test-Path $scos)) {
     $scos = Join-Path $env:USERPROFILE ".cargo\bin\scos.exe"
@@ -71,7 +71,7 @@ elseif ($Mcp) {
 else {
     $activeProfile = (& $scos profile show 2>&1) -join " "
     Write-Host ""
-    Write-Host "SkyCodeOS API — starting on http://127.0.0.1:$Port" -ForegroundColor Green
+    Write-Host "SkyCodeOS API - starting on http://127.0.0.1:$Port" -ForegroundColor Green
     Write-Host "  Chat completions:  POST /v1/chat/completions" -ForegroundColor Cyan
     Write-Host "  Models list:       GET  /v1/models"            -ForegroundColor Cyan
     Write-Host "  Event stream:      GET  /v1/events  (SSE)"     -ForegroundColor Cyan
