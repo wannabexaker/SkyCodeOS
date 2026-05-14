@@ -31,3 +31,7 @@ path = "tests/anti_regression_e2e.rs"
 [[test]]
 name = "phase10_grammar"
 path = "tests/phase10_grammar.rs"
+
+[[test]]
+name = "phase10b_sampling"
+path = "tests/phase10b_sampling.rs"

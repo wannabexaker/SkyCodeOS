@@ -43,3 +43,20 @@ profiles:
     max_tokens: 2048
     context_chunks: 5
     permissions: sandbox
+  experimental:
+    model: local-coder
+    temperature: 0.4
+    repeat_penalty: 1.05
+    max_tokens: 3072
+    context_chunks: 6
+    permissions: default
+    # Phase 10B fields - exercise the full sampling surface
+    top_k: 50
+    top_p: 0.92
+    min_p: 0.05
+    repeat_last_n: 128
+    presence_penalty: 0.1
+    frequency_penalty: 0.1
+    dry_multiplier: 0.6
+    dry_base: 1.75
+    dry_allowed_length: 2

@@ -19,6 +19,21 @@ pub struct AgentProfile {
     pub max_tokens: u32,
     pub context_chunks: usize,
     pub permissions: PermissionSet,
+    pub top_k: Option<u32>,
+    pub top_p: Option<f32>,
+    pub min_p: Option<f32>,
+    pub typical_p: Option<f32>,
+    pub repeat_last_n: Option<i32>,
+    pub presence_penalty: Option<f32>,
+    pub frequency_penalty: Option<f32>,
+    pub dynatemp_range: Option<f32>,
+    pub dynatemp_exponent: Option<f32>,
+    pub dry_multiplier: Option<f32>,
+    pub dry_base: Option<f32>,
+    pub dry_allowed_length: Option<u32>,
+    pub dry_penalty_last_n: Option<i32>,
+    pub xtc_probability: Option<f32>,
+    pub xtc_threshold: Option<f32>,
 }
 
 impl Default for AgentProfile {
@@ -31,6 +46,21 @@ impl Default for AgentProfile {
             max_tokens: 2048,
             context_chunks: 5,
             permissions: PermissionSet::Default,
+            top_k: None,
+            top_p: None,
+            min_p: None,
+            typical_p: None,
+            repeat_last_n: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            dynatemp_range: None,
+            dynatemp_exponent: None,
+            dry_multiplier: None,
+            dry_base: None,
+            dry_allowed_length: None,
+            dry_penalty_last_n: None,
+            xtc_probability: None,
+            xtc_threshold: None,
         }
     }
 }
@@ -58,6 +88,36 @@ struct ProfileEntry {
     max_tokens: u32,
     context_chunks: usize,
     permissions: String,
+    #[serde(default)]
+    top_k: Option<u32>,
+    #[serde(default)]
+    top_p: Option<f32>,
+    #[serde(default)]
+    min_p: Option<f32>,
+    #[serde(default)]
+    typical_p: Option<f32>,
+    #[serde(default)]
+    repeat_last_n: Option<i32>,
+    #[serde(default)]
+    presence_penalty: Option<f32>,
+    #[serde(default)]
+    frequency_penalty: Option<f32>,
+    #[serde(default)]
+    dynatemp_range: Option<f32>,
+    #[serde(default)]
+    dynatemp_exponent: Option<f32>,
+    #[serde(default)]
+    dry_multiplier: Option<f32>,
+    #[serde(default)]
+    dry_base: Option<f32>,
+    #[serde(default)]
+    dry_allowed_length: Option<u32>,
+    #[serde(default)]
+    dry_penalty_last_n: Option<i32>,
+    #[serde(default)]
+    xtc_probability: Option<f32>,
+    #[serde(default)]
+    xtc_threshold: Option<f32>,
 }
 
 pub fn load_profile(agents_root: &Path, name: &str) -> Result<AgentProfile, ProfileError> {
@@ -89,5 +149,20 @@ pub fn load_profile(agents_root: &Path, name: &str) -> Result<AgentProfile, Prof
             "sandbox" => PermissionSet::Sandbox,
             _ => PermissionSet::Default,
         },
+        top_k: entry.top_k,
+        top_p: entry.top_p,
+        min_p: entry.min_p,
+        typical_p: entry.typical_p,
+        repeat_last_n: entry.repeat_last_n,
+        presence_penalty: entry.presence_penalty,
+        frequency_penalty: entry.frequency_penalty,
+        dynatemp_range: entry.dynatemp_range,
+        dynatemp_exponent: entry.dynatemp_exponent,
+        dry_multiplier: entry.dry_multiplier,
+        dry_base: entry.dry_base,
+        dry_allowed_length: entry.dry_allowed_length,
+        dry_penalty_last_n: entry.dry_penalty_last_n,
+        xtc_probability: entry.xtc_probability,
+        xtc_threshold: entry.xtc_threshold,
     })
 }
