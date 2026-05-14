@@ -1039,6 +1039,23 @@ sequence as a blocking item before further feature work.
 
 ---
 
+## Phase 10 - Structured Output Hardening
+
+### 10A - GBNF grammar constraints  [COMPLETE]
+
+- `agents/grammars/skycore.gbnf` defines the SkyCore JSON shape.
+- `ModelHandle::set_grammar(Some(text))` configures the active sampler.
+- `task_loop` loads `agents/grammars/skycore.gbnf` if present and applies it.
+- When grammar is active, `response_format: json_object` is omitted (they
+  conflict in llama.cpp).
+- Test: `phase10_grammar.rs` verifies the file exists and the mock-mode
+  end-to-end path still passes when the grammar is loaded.
+
+### 10B - Streaming SSE on /v1/chat/completions  [PENDING]
+### 10C - Tool-call smoke test per (model, template)  [PENDING]
+
+---
+
 ## Universal Phase Gate Checklist
 
 All lines must be `pass` before a phase closes.

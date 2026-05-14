@@ -451,7 +451,25 @@ fn invoke_model_and_parse_response(
         .and_then(|p| std::fs::read_to_string(repo_root.join(p)).ok());
     let prompt = build_qwen_prompt(request, file_hint.as_deref(), file_context.as_deref());
 
-    let handle = launch_server(&launch)?;
+    let mut handle = launch_server(&launch)?;
+
+    // Load GBNF grammar if present; enforce SkyCore output shape at the sampler level.
+    let grammar_path = repo_root
+        .join("agents")
+        .join("grammars")
+        .join("skycore.gbnf");
+    if grammar_path.exists() {
+        match std::fs::read_to_string(&grammar_path) {
+            Ok(grammar) => handle.set_grammar(Some(grammar)),
+            Err(err) => {
+                eprintln!(
+                    "warning: failed to read grammar at {}: {err}",
+                    grammar_path.display()
+                );
+            }
+        }
+    }
+
     let line = handle.call_model(&prompt)?;
     #[cfg(test)]
     append_raw_model_response(repo_root, &request.goal, &line);

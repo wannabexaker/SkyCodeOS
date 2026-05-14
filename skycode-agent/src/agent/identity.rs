@@ -105,7 +105,7 @@ fn assert_single_agent(agents_root: &Path) -> Result<(), IdentityError> {
         if entry.file_type()?.is_dir() {
             let name = entry.file_name();
             let name = name.to_string_lossy();
-            if name != "models" {
+            if !matches!(name.as_ref(), "models" | "grammars") {
                 count += 1;
             }
         }
