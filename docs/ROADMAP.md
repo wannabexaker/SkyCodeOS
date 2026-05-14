@@ -1051,8 +1051,20 @@ sequence as a blocking item before further feature work.
 - Test: `phase10_grammar.rs` verifies the file exists and the mock-mode
   end-to-end path still passes when the grammar is loaded.
 
-### 10B - Streaming SSE on /v1/chat/completions  [PENDING]
-### 10C - Tool-call smoke test per (model, template)  [PENDING]
+### 10B - Extended sampling parameters  [COMPLETE]
+
+- AgentProfile gains 15 optional sampling fields covering Top K, Top P,
+  Min P, Typical P, repeat_last_n, presence/frequency penalty, dynamic
+  temperature, DRY family, XTC family.
+- ChatCompletionRequest forwards each field only when set (omit-if-none).
+- agents/profiles.yaml gets a new `experimental` profile that exercises
+  the full surface.
+- Reference inventory of llama.cpp's WebUI fields lives at
+  docs/inventory/llama-cpp-webui.md.
+- 5 new tests in phase10b_sampling.rs. Full suite at 105.
+
+### 10C - Streaming SSE on /v1/chat/completions  [PENDING]
+### 10D - Tool-call smoke test per (model, template)  [PENDING]
 
 ---
 

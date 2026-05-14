@@ -47,9 +47,29 @@ pub struct ModelHandle {
     repeat_penalty: f32,
     max_tokens: usize,
     grammar: Option<String>,
+    sampling: SamplingExtras,
     stopped: bool,
     pub mlock_verified: bool,
     pub mlock_warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SamplingExtras {
+    pub top_k: Option<u32>,
+    pub top_p: Option<f32>,
+    pub min_p: Option<f32>,
+    pub typical_p: Option<f32>,
+    pub repeat_last_n: Option<i32>,
+    pub presence_penalty: Option<f32>,
+    pub frequency_penalty: Option<f32>,
+    pub dynatemp_range: Option<f32>,
+    pub dynatemp_exponent: Option<f32>,
+    pub dry_multiplier: Option<f32>,
+    pub dry_base: Option<f32>,
+    pub dry_allowed_length: Option<u32>,
+    pub dry_penalty_last_n: Option<i32>,
+    pub xtc_probability: Option<f32>,
+    pub xtc_threshold: Option<f32>,
 }
 
 #[derive(Debug, Error)]
@@ -139,6 +159,7 @@ pub fn launch_server(options: &ModelLaunchOptions) -> Result<ModelHandle, Infere
         repeat_penalty: options.repeat_penalty,
         max_tokens: options.max_tokens,
         grammar: None,
+        sampling: SamplingExtras::default(),
         stopped: false,
         mlock_verified,
         mlock_warning,
@@ -286,7 +307,16 @@ pub fn call_model(prompt: &str, port: u16) -> Result<String, InferenceError> {
         .timeout(REQUEST_TIMEOUT)
         .build()?;
     let base_url = format!("http://{}:{}", SERVER_HOST, port);
-    call_model_at(&client, &base_url, prompt, 0.1, 1024, 1.1, None)
+    call_model_at(
+        &client,
+        &base_url,
+        prompt,
+        0.1,
+        1024,
+        1.1,
+        None,
+        SamplingExtras::default(),
+    )
 }
 
 fn spawn_line_reader<R>(stream: R) -> Receiver<String>
@@ -403,33 +433,16 @@ fn call_model_at(
     max_tokens: usize,
     repeat_penalty: f32,
     grammar: Option<String>,
+    sampling: SamplingExtras,
 ) -> Result<String, InferenceError> {
-    let response_format = if grammar.is_none() {
-        Some(ResponseFormat {
-            format_type: "json_object",
-        })
-    } else {
-        None
-    };
-
-    let body = ChatCompletionRequest {
-        model: "local",
-        messages: vec![
-            ChatMessageRequest {
-                role: "system",
-                content: "You are coder-primary. You MUST respond with a single valid JSON object. No markdown, no prose, no code fences. Only raw JSON.",
-            },
-            ChatMessageRequest {
-                role: "user",
-                content: prompt,
-            },
-        ],
+    let body = build_chat_completion_request(
+        prompt,
         temperature,
         max_tokens,
         repeat_penalty,
-        response_format,
         grammar,
-    };
+        sampling,
+    );
 
     let response = client
         .post(format!("{}/v1/chat/completions", base_url))
@@ -475,11 +488,16 @@ impl ModelHandle {
             self.max_tokens,
             self.repeat_penalty,
             self.grammar.clone(),
+            self.sampling.clone(),
         )
     }
 
     pub fn set_grammar(&mut self, grammar: Option<String>) {
         self.grammar = grammar;
+    }
+
+    pub fn set_sampling(&mut self, sampling: SamplingExtras) {
+        self.sampling = sampling;
     }
 
     /// llama-server uses HTTP chat completions; prompt writes are unsupported.
@@ -528,6 +546,75 @@ impl Drop for ModelHandle {
     }
 }
 
+pub fn chat_completion_request_json(
+    prompt: &str,
+    temperature: f32,
+    max_tokens: usize,
+    repeat_penalty: f32,
+    grammar: Option<String>,
+    sampling: SamplingExtras,
+) -> Result<serde_json::Value, serde_json::Error> {
+    serde_json::to_value(build_chat_completion_request(
+        prompt,
+        temperature,
+        max_tokens,
+        repeat_penalty,
+        grammar,
+        sampling,
+    ))
+}
+
+fn build_chat_completion_request(
+    prompt: &str,
+    temperature: f32,
+    max_tokens: usize,
+    repeat_penalty: f32,
+    grammar: Option<String>,
+    sampling: SamplingExtras,
+) -> ChatCompletionRequest<'_> {
+    let response_format = if grammar.is_none() {
+        Some(ResponseFormat {
+            format_type: "json_object",
+        })
+    } else {
+        None
+    };
+
+    ChatCompletionRequest {
+        model: "local",
+        messages: vec![
+            ChatMessageRequest {
+                role: "system",
+                content: "You are coder-primary. You MUST respond with a single valid JSON object. No markdown, no prose, no code fences. Only raw JSON.",
+            },
+            ChatMessageRequest {
+                role: "user",
+                content: prompt,
+            },
+        ],
+        temperature,
+        max_tokens,
+        repeat_penalty,
+        response_format,
+        grammar,
+        top_k: sampling.top_k,
+        top_p: sampling.top_p,
+        min_p: sampling.min_p,
+        typical_p: sampling.typical_p,
+        repeat_last_n: sampling.repeat_last_n,
+        presence_penalty: sampling.presence_penalty,
+        frequency_penalty: sampling.frequency_penalty,
+        dynatemp_range: sampling.dynatemp_range,
+        dynatemp_exponent: sampling.dynatemp_exponent,
+        dry_multiplier: sampling.dry_multiplier,
+        dry_base: sampling.dry_base,
+        dry_allowed_length: sampling.dry_allowed_length,
+        dry_penalty_last_n: sampling.dry_penalty_last_n,
+        xtc_probability: sampling.xtc_probability,
+        xtc_threshold: sampling.xtc_threshold,
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct ChatCompletionRequest<'a> {
     model: &'a str,
@@ -539,6 +626,36 @@ struct ChatCompletionRequest<'a> {
     response_format: Option<ResponseFormat>,
     #[serde(skip_serializing_if = "Option::is_none")]
     grammar: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_k: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    min_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    typical_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repeat_last_n: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    presence_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    frequency_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dynatemp_range: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dynatemp_exponent: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dry_multiplier: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dry_base: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dry_allowed_length: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dry_penalty_last_n: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    xtc_probability: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    xtc_threshold: Option<f32>,
 }
 
 #[derive(Debug, Serialize)]

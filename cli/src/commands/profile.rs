@@ -31,7 +31,7 @@ pub enum ProfileCommands {
 
 #[derive(Debug, Args)]
 pub struct ProfileUseArgs {
-    /// Profile name: precise | fast | creative | deep
+    /// Profile name from agents/profiles.yaml.
     pub profile: String,
 
     /// Set the test command run after apply (e.g. "cargo test").
@@ -307,25 +307,40 @@ fn run_profile_list() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| "precise".to_string());
 
     println!(
-        "{:<12} {:<16} {:<8} {:<14} {:<12} PERMISSIONS",
-        "NAME", "MODEL", "TEMP", "REPEAT_PEN", "MAX_TOKENS"
+        "{:<12} {:<16} {:<6} {:<10} {:<10} {:<5} {:<5} {:<5} PERMISSIONS",
+        "NAME", "MODEL", "TEMP", "REPEAT", "MAX_TOK", "TOP_K", "TOP_P", "MIN_P"
     );
     for name in &names {
         let profile = load_profile(&agents_root, name).unwrap_or_default();
         let marker = if profile.name == active { " <-" } else { "" };
         println!(
-            "{:<12} {:<16} {:<8.2} {:<14.2} {:<12} {}{}",
+            "{:<12} {:<16} {:<6.2} {:<10.2} {:<10} {:<5} {:<5} {:<5} {}{}",
             profile.name,
             profile.model,
             profile.temperature,
             profile.repeat_penalty,
             profile.max_tokens,
+            display_optional_u32(profile.top_k),
+            display_optional_f32(profile.top_p),
+            display_optional_f32(profile.min_p),
             format!("{:?}", profile.permissions).to_lowercase(),
             marker
         );
     }
 
     Ok(())
+}
+
+fn display_optional_u32(value: Option<u32>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn display_optional_f32(value: Option<f32>) -> String {
+    value
+        .map(|value| format!("{value:.2}"))
+        .unwrap_or_else(|| "-".to_string())
 }
 
 fn run_profile_bench(args: &ProfileBenchArgs) -> Result<(), Box<dyn std::error::Error>> {

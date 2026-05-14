@@ -15,7 +15,7 @@ use skycode_core::skycore::{
 use skycode_graph::graph::impact_query;
 use skycode_inference::inference::{
     launch_server, resolve_gpu_layers, resolve_tensor_split, InferenceError, ModelLaunchOptions,
-    ModelRegistryError, ModelRegistryWatcher, ModelRuntime,
+    ModelRegistryError, ModelRegistryWatcher, ModelRuntime, SamplingExtras,
 };
 use skycode_memory::memory::{search_memories, RetrievalError};
 use skycode_tools::tools::diff::{create_diff, DiffError, DiffProposal};
@@ -469,6 +469,25 @@ fn invoke_model_and_parse_response(
             }
         }
     }
+
+    let extras = SamplingExtras {
+        top_k: profile.top_k,
+        top_p: profile.top_p,
+        min_p: profile.min_p,
+        typical_p: profile.typical_p,
+        repeat_last_n: profile.repeat_last_n,
+        presence_penalty: profile.presence_penalty,
+        frequency_penalty: profile.frequency_penalty,
+        dynatemp_range: profile.dynatemp_range,
+        dynatemp_exponent: profile.dynatemp_exponent,
+        dry_multiplier: profile.dry_multiplier,
+        dry_base: profile.dry_base,
+        dry_allowed_length: profile.dry_allowed_length,
+        dry_penalty_last_n: profile.dry_penalty_last_n,
+        xtc_probability: profile.xtc_probability,
+        xtc_threshold: profile.xtc_threshold,
+    };
+    handle.set_sampling(extras);
 
     let line = handle.call_model(&prompt)?;
     #[cfg(test)]
