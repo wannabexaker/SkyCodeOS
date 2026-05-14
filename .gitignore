@@ -45,3 +45,6 @@ Thumbs.db
 /tmp_move_test/
 /παρουσιαση.md
 /presentation*.md
+
+# README analysis cache (per-run, never committed)
+docs/notes.md
