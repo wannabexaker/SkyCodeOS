@@ -529,6 +529,7 @@ fn run_tuning_task(
         goal: task.to_string(),
         repo_root: ".".to_string(),
         profile: profile.clone(),
+        allow_destructive: false,
     };
 
     let start = Instant::now();

@@ -1089,6 +1089,25 @@ Phase 10 closed.
 
 ---
 
+## Phase 11 - Daily-use safety (in progress)
+
+### 11A - Destructive diff guard  [COMPLETE]
+- OrchestratorError::DestructiveDiff rejects rewrites that remove >50%
+  of an existing file's lines unless --allow-destructive is set.
+- Approve prompt now shows +N -M before asking.
+- 4 tests in phase11_safety.rs.
+
+### 11B - scos serve auto-spawns llama-server  [COMPLETE]
+- serve starts the configured local_gguf child via launch_server,
+  health-checks it, then binds. --no-spawn for external-upstream mode.
+- ModelHandle held for the lifetime of the axum server; killed on
+  shutdown.
+- 2 tests in phase11_serve_spawn.rs.
+
+Suite now at ~138 tests.
+
+---
+
 ## Universal Phase Gate Checklist
 
 All lines must be `pass` before a phase closes.

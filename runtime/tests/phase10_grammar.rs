@@ -71,6 +71,7 @@ mod phase10_grammar {
             goal: "Create a HELLO.md file with hello world".to_string(),
             repo_root: repo.to_string_lossy().to_string(),
             profile: "precise".to_string(),
+            allow_destructive: false,
         };
 
         let output = run_task_loop(&conn, &input)?;

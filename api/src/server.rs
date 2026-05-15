@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::net::SocketAddr;
 
 use axum::{
@@ -11,6 +12,18 @@ use crate::routes::{capabilities, chat, diffs, events, health, models, tasks};
 use crate::state::AppState;
 
 pub async fn run(state: AppState, host: &str, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    run_with_shutdown(state, host, port, shutdown_signal()).await
+}
+
+pub async fn run_with_shutdown<S>(
+    state: AppState,
+    host: &str,
+    port: u16,
+    shutdown: S,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    S: Future<Output = ()> + Send + 'static,
+{
     let app = Router::new()
         .route("/health", get(health::handler))
         .route("/v1/models", get(models::handler))
@@ -42,6 +55,12 @@ pub async fn run(state: AppState, host: &str, port: u16) -> Result<(), Box<dyn s
     println!("  GET  /v1/events");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown)
+        .await?;
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let _ = tokio::signal::ctrl_c().await;
 }
