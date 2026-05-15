@@ -7,4 +7,5 @@ pub mod model;
 pub mod profile;
 pub mod rollback;
 pub mod scan;
+pub mod selfcheck;
 pub mod serve;

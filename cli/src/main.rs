@@ -46,6 +46,8 @@ enum Commands {
     Serve(commands::serve::ServeArgs),
     /// Start the MCP server (stdio for Claude Desktop, --sse for LAN).
     Mcp(commands::mcp::McpArgs),
+    /// Run release-readiness smoke checks.
+    Selfcheck(commands::selfcheck::SelfcheckArgs),
 }
 
 #[derive(Subcommand)]
@@ -71,6 +73,7 @@ fn main() {
         Commands::Profile { command } => commands::profile::run_profile_command(command),
         Commands::Serve(args) => commands::serve::run(args),
         Commands::Mcp(args) => commands::mcp::run(args),
+        Commands::Selfcheck(args) => commands::selfcheck::run(args),
     };
 
     if let Err(err) = result {

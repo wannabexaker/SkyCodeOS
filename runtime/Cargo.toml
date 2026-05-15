@@ -42,3 +42,7 @@ path = "tests/phase10b_sampling.rs"
 [[test]]
 name = "phase10c_streaming"
 path = "tests/phase10c_streaming.rs"
+
+[[test]]
+name = "phase10d_tools_smoke"
+path = "tests/phase10d_tools_smoke.rs"
