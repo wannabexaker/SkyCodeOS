@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::fmt::Display;
 use std::time::Duration;
 
 use axum::body::Body;
@@ -9,6 +10,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use futures_util::stream::StreamExt;
+use futures_util::stream::{self};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -77,21 +79,14 @@ pub async fn handler(
         .map_err(|_| upstream_unreachable())?;
 
     if request.stream == Some(true) {
-        let stream = upstream_response.bytes_stream().flat_map(|chunk_result| {
-            let mut events: Vec<Result<Event, Infallible>> = Vec::new();
-
-            if let Ok(bytes) = chunk_result {
-                let text = String::from_utf8_lossy(&bytes);
-                for raw_line in text.split('\n') {
-                    let line = raw_line.trim_end_matches('\r');
-                    if let Some(data) = line.strip_prefix("data:") {
-                        events.push(Ok(Event::default().data(data.trim_start().to_string())));
-                    }
-                }
-            }
-
-            futures_util::stream::iter(events)
-        });
+        let stream = upstream_response
+            .bytes_stream()
+            .map(SseStreamInput::Chunk)
+            .chain(stream::once(async { SseStreamInput::End }))
+            .scan(SseLineBuffer::default(), |state, input| {
+                futures_util::future::ready(Some(state.handle(input)))
+            })
+            .flat_map(stream::iter);
 
         let sse = Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)));
         return Ok(sse.into_response());
@@ -141,4 +136,102 @@ fn upstream_unreachable() -> (StatusCode, Json<Value>) {
             }
         })),
     )
+}
+
+enum SseStreamInput<T, E> {
+    Chunk(Result<T, E>),
+    End,
+}
+
+#[derive(Default)]
+struct SseLineBuffer {
+    buffer: String,
+    closed: bool,
+}
+
+impl SseLineBuffer {
+    fn handle<T, E>(&mut self, input: SseStreamInput<T, E>) -> Vec<Result<Event, Infallible>>
+    where
+        T: AsRef<[u8]>,
+        E: Display,
+    {
+        let mut events = Vec::new();
+
+        if self.closed {
+            return events;
+        }
+
+        match input {
+            SseStreamInput::Chunk(Ok(bytes)) => {
+                self.buffer
+                    .push_str(String::from_utf8_lossy(bytes.as_ref()).as_ref());
+                self.drain_complete_lines(&mut events);
+            }
+            SseStreamInput::Chunk(Err(err)) => {
+                self.closed = true;
+                self.buffer.clear();
+                events.push(Ok(upstream_stream_error_event(&err.to_string())));
+            }
+            SseStreamInput::End => {
+                self.flush_partial_line(&mut events);
+                self.closed = true;
+            }
+        }
+
+        events
+    }
+
+    fn drain_complete_lines(&mut self, events: &mut Vec<Result<Event, Infallible>>) {
+        while let Some(newline_idx) = self.buffer.find('\n') {
+            let mut raw_line = self.buffer.drain(..=newline_idx).collect::<String>();
+            if raw_line.ends_with('\n') {
+                raw_line.pop();
+            }
+            if raw_line.ends_with('\r') {
+                raw_line.pop();
+            }
+            push_sse_line_event(&raw_line, events);
+        }
+    }
+
+    fn flush_partial_line(&mut self, events: &mut Vec<Result<Event, Infallible>>) {
+        let line = self.buffer.trim_end_matches('\r').to_string();
+        self.buffer.clear();
+        push_sse_line_event(&line, events);
+    }
+}
+
+fn push_sse_line_event(line: &str, events: &mut Vec<Result<Event, Infallible>>) {
+    // This proxy forwards only `data:` frames. Empty lines, comments
+    // (`:keepalive`), and SSE metadata (`event:`, `id:`, `retry:`) are skipped.
+    if line.is_empty()
+        || line.starts_with(':')
+        || line.starts_with("event:")
+        || line.starts_with("id:")
+        || line.starts_with("retry:")
+    {
+        return;
+    }
+
+    if let Some(data) = line.strip_prefix("data:") {
+        events.push(Ok(Event::default().data(data.trim_start().to_string())));
+    }
+}
+
+fn upstream_stream_error_event(message: &str) -> Event {
+    let payload = match serde_json::to_string(&json!({
+        "error": {
+            "message": message,
+            "type": "api_error",
+            "code": "upstream_stream_error"
+        }
+    })) {
+        Ok(payload) => payload,
+        Err(_) => {
+            "{\"error\":{\"message\":\"upstream stream error\",\"type\":\"api_error\",\"code\":\"upstream_stream_error\"}}"
+                .to_string()
+        }
+    };
+
+    Event::default().data(payload)
 }
