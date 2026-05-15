@@ -78,6 +78,52 @@ fn phase7_mcp_readonly_no_auth() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn phase7_mcp_get_agent_state_matches_schema() -> Result<(), Box<dyn std::error::Error>> {
+    // Regression test for the schema-mismatch bug surfaced by Claude Desktop:
+    // dispatch handler used to SELECT task_id, status, model_name which do
+    // not exist in agent_state. Empty-table fallback must also work.
+    let temp = TempDir::new()?;
+    let state = mcp_state(temp.path())?;
+
+    // 1. Empty table — must return all-null shape, never an error.
+    let result = dispatch_tool("get_agent_state", json!({}), &state);
+    assert_ne!(
+        result["isError"], true,
+        "get_agent_state must not error on empty table: {result}"
+    );
+
+    // 2. With a real row — must surface agent_id, project_id, active_profile.
+    {
+        let conn = state.conn.lock().expect("lock conn");
+        conn.execute(
+            "INSERT INTO agent_state \
+                 (agent_id, project_id, state_json, session_id, updated_at, test_command, verify_timeout_secs) \
+             VALUES ('coder-primary', 'default', '{\"profile\":\"precise\"}', 'cli', 1, 'cargo test', 30)",
+            [],
+        )?;
+    }
+
+    let result = dispatch_tool("get_agent_state", json!({}), &state);
+    assert_ne!(
+        result["isError"], true,
+        "get_agent_state must not error on populated table: {result}"
+    );
+
+    let text = result["content"][0]["text"]
+        .as_str()
+        .expect("text payload");
+    let parsed: Value = serde_json::from_str(text)?;
+
+    assert_eq!(parsed["agent_id"], "coder-primary");
+    assert_eq!(parsed["project_id"], "default");
+    assert_eq!(parsed["active_profile"], "precise");
+    assert_eq!(parsed["test_command"], "cargo test");
+    assert_eq!(parsed["verify_timeout_secs"], 30);
+
+    Ok(())
+}
+
+#[test]
 fn phase7_mcp_mutate_requires_key() -> Result<(), Box<dyn std::error::Error>> {
     let temp = TempDir::new()?;
     let state = mcp_state(temp.path())?;
