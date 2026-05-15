@@ -1063,7 +1063,19 @@ sequence as a blocking item before further feature work.
   docs/inventory/llama-cpp-webui.md.
 - 5 new tests in phase10b_sampling.rs. Full suite at 105.
 
-### 10C - Streaming SSE on /v1/chat/completions  [PENDING]
+### 10C - Streaming SSE on /v1/chat/completions  [COMPLETE]
+
+- Line-buffered parser correctly reassembles SSE frames that span
+  chunk boundaries. Previously the naive split-on-newline path
+  truncated mid-frame JSON under any non-trivial response.
+- Upstream errors are surfaced as a final SSE event with code
+  `upstream_stream_error` instead of being silently dropped.
+- 5 new tests in phase10c_streaming.rs exercise multi-chunk
+  reassembly, [DONE] terminator, SSE comments, upstream error, and
+  the non-streaming path. Full suite at 110.
+- The `stream: true` parameter is now safe for Cursor / VS Code
+  IDE clients consuming SkyCodeOS as an OpenAI endpoint.
+
 ### 10D - Tool-call smoke test per (model, template)  [PENDING]
 
 ---
