@@ -1076,7 +1076,16 @@ sequence as a blocking item before further feature work.
 - The `stream: true` parameter is now safe for Cursor / VS Code
   IDE clients consuming SkyCodeOS as an OpenAI endpoint.
 
-### 10D - Tool-call smoke test per (model, template)  [PENDING]
+### 10D - All-tools reliability smoke suite  [COMPLETE]
+
+- runtime/tests/phase10d_tools_smoke.rs runs every tool entry point
+  back-to-back in a single suite. 22 tests cover happy path, typed
+  failures, append-only invariants, replay defense, clock skew,
+  and DB trigger enforcement.
+- `scos selfcheck` runs the suite as a release-readiness gate.
+- Full suite at 132 tests.
+
+Phase 10 closed.
 
 ---
 

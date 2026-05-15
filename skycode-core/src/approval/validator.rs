@@ -12,6 +12,8 @@ pub const CLOCK_SKEW_GRACE_SECONDS: i64 = 30;
 pub enum ValidatorError {
     #[error("token expired")]
     Expired,
+    #[error("token issued in the future")]
+    NotYetValid,
     #[error("project binding mismatch")]
     ProjectBindingMismatch,
     #[error("diff binding mismatch")]
@@ -78,6 +80,9 @@ pub fn validate_token(
 ) -> Result<(), ValidatorError> {
     // Step 1: TTL with CLOCK_SKEW_GRACE_SECONDS tolerance.
     let now = now_unix()?;
+    if token.created_at > now + CLOCK_SKEW_GRACE_SECONDS {
+        return Err(ValidatorError::NotYetValid);
+    }
     if now > token.expires_at + CLOCK_SKEW_GRACE_SECONDS {
         return Err(ValidatorError::Expired);
     }
