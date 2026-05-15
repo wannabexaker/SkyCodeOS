@@ -17,6 +17,7 @@ skycode-orchestrator = { path = "../skycode-orchestrator" }
 skycode-api = { path = "../api" }
 skycode-mcp = { path = "../mcp" }
 skycode-contracts = { path = "../contracts" }
+skycode-cli = { path = "../cli" }
 httpmock = "0.7"
 reqwest = { version = "0.12", features = ["json", "stream"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
@@ -46,3 +47,11 @@ path = "tests/phase10c_streaming.rs"
 [[test]]
 name = "phase10d_tools_smoke"
 path = "tests/phase10d_tools_smoke.rs"
+
+[[test]]
+name = "phase11_safety"
+path = "tests/phase11_safety.rs"
+
+[[test]]
+name = "phase11_serve_spawn"
+path = "tests/phase11_serve_spawn.rs"

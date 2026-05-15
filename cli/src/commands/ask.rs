@@ -5,7 +5,9 @@ use clap::Args;
 use rusqlite::Connection;
 
 use skycode_orchestrator::db::migrations::run_migrations;
-use skycode_orchestrator::orchestrator::{run_task_loop, OrchestratorError, TaskLoopInput};
+use skycode_orchestrator::orchestrator::{
+    diff_stats, run_task_loop, OrchestratorError, TaskLoopInput,
+};
 
 use crate::commands::apply::apply_diff_from_store;
 use crate::commands::approve::approve_diff;
@@ -26,6 +28,10 @@ pub struct AskArgs {
     /// Tuning profile: precise | fast | creative | deep. Default: precise.
     #[arg(long, default_value = "precise")]
     pub profile: String,
+
+    /// Allow large destructive rewrites that remove most of an existing file.
+    #[arg(long)]
+    pub allow_destructive: bool,
 }
 
 pub fn run(args: &AskArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -44,6 +50,7 @@ pub fn run(args: &AskArgs) -> Result<(), Box<dyn std::error::Error>> {
         goal: args.task.clone(),
         repo_root: args.repo.clone(),
         profile: args.profile.clone(),
+        allow_destructive: args.allow_destructive,
     };
 
     let output = match run_task_loop(&conn, &input) {
@@ -61,6 +68,11 @@ pub fn run(args: &AskArgs) -> Result<(), Box<dyn std::error::Error>> {
     println!("  summary: {}", output.response_summary);
     println!("---");
     println!("{}", output.diff.diff_text);
+    let stats = diff_stats(&output.diff.diff_text);
+    println!(
+        "Diff: +{} -{} across {} file(s)",
+        stats.added, stats.removed, stats.files
+    );
     println!("Approve? [y/N]");
 
     io::stdout().flush()?;

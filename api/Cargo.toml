@@ -10,7 +10,7 @@ skycode-core = { path = "../skycode-core" }
 skycode-tools = { path = "../skycode-tools" }
 skycode-contracts = { path = "../contracts" }
 axum = { version = "0.8", features = ["macros"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "time", "signal"] }
 tokio-stream = "0.1"
 tower-http = { version = "0.6", features = ["cors"] }
 serde = { version = "1", features = ["derive"] }

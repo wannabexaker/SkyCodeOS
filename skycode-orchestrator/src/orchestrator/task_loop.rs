@@ -27,6 +27,10 @@ use crate::orchestrator::router::{
 
 use diffy::create_patch;
 
+pub const DESTRUCTIVE_DELETE_RATIO_THRESHOLD: f64 = 0.50;
+pub const DESTRUCTIVE_MIN_ORIGINAL_LINES: usize = 20;
+pub const DESTRUCTIVE_ADDITION_RELIEF_DIVISOR: usize = 2;
+
 #[derive(Debug, Clone)]
 pub struct TaskLoopInput {
     pub task_id: String,
@@ -34,6 +38,7 @@ pub struct TaskLoopInput {
     pub goal: String,
     pub repo_root: String,
     pub profile: String,
+    pub allow_destructive: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +79,11 @@ pub enum OrchestratorError {
     EmptyModelOutput,
     #[error("model output invalid: {0}")]
     ModelOutputInvalid(String),
+    #[error(
+        "refused: diff would delete {removed}/{original} lines\n({}% of the file). This looks like a destructive rewrite rather than\nan additive edit. Re-run with --allow-destructive to override, or\nrephrase the task to be more specific about what to change.",
+        destructive_diff_percent(*removed, *original)
+    )]
+    DestructiveDiff { removed: usize, original: usize },
 }
 
 pub fn run_task_loop(
@@ -135,13 +145,19 @@ pub fn run_task_loop(
         .unwrap_or_else(|| "README.md".to_string());
 
     let mut diff = create_diff(&input.project_id, Path::new(&file_path), "", "")?;
+    let target_path = repo_root.join(&file_path);
+    let file_existed = target_path.is_file();
+    let old_content = if file_existed {
+        std::fs::read_to_string(&target_path)
+            .unwrap_or_default()
+            .replace("\r\n", "\n")
+    } else {
+        String::new()
+    };
 
     // Prefer new_content (full-file rewrite) — compute the diff ourselves so it
     // is always correct regardless of model quality.
     if let Some(new_content) = &artifact.new_content {
-        let old_content = std::fs::read_to_string(repo_root.join(&file_path))
-            .unwrap_or_default()
-            .replace("\r\n", "\n");
         let git_patch = build_rewrite_patch(&file_path, &old_content, new_content);
         if !git_patch.trim().is_empty() {
             diff.diff_text = git_patch;
@@ -159,6 +175,13 @@ pub fn run_task_loop(
         }
     }
 
+    guard_destructive_diff(
+        &diff.diff_text,
+        file_existed,
+        old_content.lines().count(),
+        input.allow_destructive,
+    )?;
+
     store_diff_proposal(
         conn,
         &input.task_id,
@@ -172,6 +195,68 @@ pub fn run_task_loop(
         diff,
         response_summary: response.summary,
     })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiffStats {
+    pub added: usize,
+    pub removed: usize,
+    pub files: usize,
+}
+
+pub fn diff_stats(diff_text: &str) -> DiffStats {
+    let mut added = 0usize;
+    let mut removed = 0usize;
+    let mut files = 0usize;
+
+    for line in diff_text.lines() {
+        if line.starts_with("diff --git ") {
+            files += 1;
+        } else if line.starts_with('+') && !line.starts_with("+++") {
+            added += 1;
+        } else if line.starts_with('-') && !line.starts_with("---") {
+            removed += 1;
+        }
+    }
+
+    if files == 0 && !diff_text.trim().is_empty() {
+        files = 1;
+    }
+
+    DiffStats {
+        added,
+        removed,
+        files,
+    }
+}
+
+fn guard_destructive_diff(
+    diff_text: &str,
+    file_existed: bool,
+    original_lines: usize,
+    allow_destructive: bool,
+) -> Result<(), OrchestratorError> {
+    if allow_destructive || !file_existed || original_lines < DESTRUCTIVE_MIN_ORIGINAL_LINES {
+        return Ok(());
+    }
+
+    let stats = diff_stats(diff_text);
+    let removed_ratio = stats.removed as f64 / original_lines.max(1) as f64;
+    let insufficient_replacement =
+        stats.added < stats.removed / DESTRUCTIVE_ADDITION_RELIEF_DIVISOR;
+
+    if removed_ratio > DESTRUCTIVE_DELETE_RATIO_THRESHOLD && insufficient_replacement {
+        return Err(OrchestratorError::DestructiveDiff {
+            removed: stats.removed,
+            original: original_lines,
+        });
+    }
+
+    Ok(())
+}
+
+fn destructive_diff_percent(removed: usize, original: usize) -> usize {
+    ((removed as f64 / original.max(1) as f64) * 100.0).round() as usize
 }
 
 pub fn select_diff_artifact(

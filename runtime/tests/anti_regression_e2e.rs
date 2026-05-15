@@ -65,6 +65,7 @@ mod anti_regression {
             goal: "Add CHANGELOG.md".to_string(),
             repo_root: repo.to_string_lossy().to_string(),
             profile: "precise".to_string(),
+            allow_destructive: false,
         };
         let output = run_task_loop(&conn, &input)?;
 

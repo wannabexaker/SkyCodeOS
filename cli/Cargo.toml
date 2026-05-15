@@ -18,6 +18,7 @@ uuid = { version = "1", features = ["v4"] }
 reqwest = { version = "0.12", features = ["json"] }
 skycode-orchestrator = { path = "../skycode-orchestrator" }
 skycode-tools = { path = "../skycode-tools" }
+skycode-inference = { path = "../skycode-inference" }
 skycode-api = { path = "../api" }
 skycode-mcp = { path = "../mcp" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
