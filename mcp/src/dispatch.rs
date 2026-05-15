@@ -170,18 +170,34 @@ fn tool_get_agent_state(state: &McpState) -> Value {
     };
 
     let result = conn.query_row(
-        "SELECT task_id, status, model_name, test_command FROM agent_state LIMIT 1",
+        "SELECT agent_id, project_id, state_json, session_id, updated_at, \
+                test_command, verify_timeout_secs \
+           FROM agent_state \
+          ORDER BY updated_at DESC \
+          LIMIT 1",
         [],
         |row| {
-            let task_id: Option<String> = row.get(0)?;
-            let status: Option<String> = row.get(1)?;
-            let model_name: Option<String> = row.get(2)?;
-            let test_command: Option<String> = row.get(3)?;
+            let agent_id: String = row.get(0)?;
+            let project_id: String = row.get(1)?;
+            let state_json: String = row.get(2)?;
+            let session_id: Option<String> = row.get(3)?;
+            let updated_at: i64 = row.get(4)?;
+            let test_command: Option<String> = row.get(5)?;
+            let verify_timeout_secs: i64 = row.get(6)?;
+
+            // Parse state_json to surface the active profile name when present.
+            let profile = serde_json::from_str::<Value>(&state_json)
+                .ok()
+                .and_then(|v| v.get("profile").and_then(Value::as_str).map(str::to_string));
+
             Ok(json!({
-                "task_id": task_id,
-                "status": status,
-                "model_name": model_name,
-                "test_command": test_command
+                "agent_id":            agent_id,
+                "project_id":          project_id,
+                "active_profile":      profile,
+                "session_id":          session_id,
+                "test_command":        test_command,
+                "verify_timeout_secs": verify_timeout_secs,
+                "updated_at":          updated_at
             }))
         },
     );
@@ -189,10 +205,13 @@ fn tool_get_agent_state(state: &McpState) -> Value {
     match result {
         Ok(v) => ok_content(&v),
         Err(rusqlite::Error::QueryReturnedNoRows) => ok_content(&json!({
-            "task_id": null,
-            "status": "idle",
-            "model_name": null,
-            "test_command": null
+            "agent_id":            null,
+            "project_id":          null,
+            "active_profile":      null,
+            "session_id":          null,
+            "test_command":        null,
+            "verify_timeout_secs": null,
+            "updated_at":          null
         })),
         Err(e) => err_content(&format!("database error: {e}")),
     }
