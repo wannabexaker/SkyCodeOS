@@ -140,6 +140,60 @@ fn phase7_mcp_mutate_requires_key() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn phase7_mcp_env_var_fallback_for_api_key() -> Result<(), Box<dyn std::error::Error>> {
+    // When SKYCODE_API_KEY is set and matches state.api_key, mutating tools
+    // may be invoked without passing api_key in args. This lets MCP clients
+    // (e.g. Claude Desktop) avoid handling the credential in chat context.
+    //
+    // The env var path is gated identically to the args path: must equal
+    // the server's loaded key. A wrong env value is still rejected.
+    let temp = TempDir::new()?;
+    let state = mcp_state(temp.path())?;
+    let correct = state.api_key.as_str().to_string();
+
+    // 1. With matching env var and no args: pass auth (run_verify will then
+    //    fail later because there's no test_command, but auth is the gate
+    //    under test — we assert the error message is NOT "Unauthorized").
+    let prev = std::env::var("SKYCODE_API_KEY").ok();
+    std::env::set_var("SKYCODE_API_KEY", &correct);
+    let result = dispatch_tool("run_verify", json!({}), &state);
+    let body = result["content"][0]["text"].as_str().unwrap_or_default();
+    assert!(
+        !body.contains("Unauthorized"),
+        "env-var fallback must authorize: {body}"
+    );
+
+    // 2. Wrong env var, no args: rejected.
+    std::env::set_var("SKYCODE_API_KEY", "wrong");
+    let result = dispatch_tool("run_verify", json!({}), &state);
+    assert_eq!(result["isError"], true);
+    assert!(result["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("Unauthorized"));
+
+    // 3. Args wins when both present (args correct, env wrong → pass).
+    let result = dispatch_tool(
+        "run_verify",
+        json!({ "api_key": correct.clone() }),
+        &state,
+    );
+    let body = result["content"][0]["text"].as_str().unwrap_or_default();
+    assert!(
+        !body.contains("Unauthorized"),
+        "explicit correct api_key must authorize regardless of env: {body}"
+    );
+
+    // Cleanup: restore previous env value.
+    match prev {
+        Some(v) => std::env::set_var("SKYCODE_API_KEY", v),
+        None => std::env::remove_var("SKYCODE_API_KEY"),
+    }
+
+    Ok(())
+}
+
+#[test]
 fn phase7_mcp_apply_roundtrip() -> Result<(), Box<dyn std::error::Error>> {
     let temp = TempDir::new()?;
     let repo = create_temp_git_repo(&temp)?;

@@ -36,7 +36,30 @@ fn err_content(msg: &str) -> Value {
 }
 
 fn check_auth(args: &Value, state: &McpState) -> bool {
-    args["api_key"].as_str() == Some(state.api_key.as_str())
+    // Accept the api_key either from the tool call args (caller passes it
+    // explicitly) or from the SKYCODE_API_KEY environment variable
+    // (operator configured it once via claude_desktop_config.json / shell).
+    //
+    // The env-var path lets MCP clients like Claude Desktop avoid handling
+    // a credential in chat context — they invoke mutating tools with no
+    // api_key argument and the MCP server resolves it locally.
+    //
+    // The accepted secret must still equal the server's loaded key
+    // (state.api_key, which is the contents of .skycode/api.key). Anything
+    // else is rejected.
+    if let Some(provided) = args["api_key"].as_str() {
+        if !provided.is_empty() && provided == state.api_key.as_str() {
+            return true;
+        }
+    }
+
+    if let Ok(env_key) = std::env::var("SKYCODE_API_KEY") {
+        if !env_key.is_empty() && env_key == state.api_key.as_str() {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn enforce_loop_guard(args: &Value, state: &McpState) -> Result<(), String> {
