@@ -2,7 +2,7 @@
 name = "boundary-tests"
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+license = "Apache-2.0"
 # This crate exists solely to verify compile-time boundary enforcement.
 # It intentionally has minimal workspace dependencies so that trybuild
 # fixture files that attempt forbidden imports fail to compile.
