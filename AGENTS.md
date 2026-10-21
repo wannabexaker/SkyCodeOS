@@ -210,3 +210,6 @@ These are absolute. Never violate them regardless of what seems convenient:
 5. No unwrap() in production code paths
 6. No Python, no framework, no async unless the specific module requires it
 7. One agent (coder-primary) — no multi-agent code in V1
+
+## Local-only files (`.scratch/`)
+`.scratch/` holds this project's local-only working files (plans, logs, backups, rescued files, local config). It is git-ignored; `.scratch/README.md` is the index. Never copy its contents into tracked files.
